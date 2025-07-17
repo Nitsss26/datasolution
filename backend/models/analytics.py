@@ -1,40 +1,55 @@
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, List, Any
 from datetime import datetime
 from enum import Enum
 
-class PlatformType(str, Enum):
+class TimeRange(str, Enum):
+    LAST_7_DAYS = "7d"
+    LAST_15_DAYS = "15d"
+    LAST_30_DAYS = "30d"
+    LAST_90_DAYS = "90d"
+
+class Platform(str, Enum):
     SHOPIFY = "shopify"
     FACEBOOK_ADS = "facebook_ads"
     GOOGLE_ADS = "google_ads"
     SHIPROCKET = "shiprocket"
+    AMAZON = "amazon"
+    FLIPKART = "flipkart"
 
-class TimeRange(str, Enum):
-    DAYS_7 = "7d"
-    DAYS_15 = "15d"
-    DAYS_30 = "30d"
-    DAYS_90 = "90d"
+class MetricType(str, Enum):
+    REVENUE = "revenue"
+    ORDERS = "orders"
+    AOV = "aov"
+    ROAS = "roas"
+    ACOS = "acos"
+    CAC = "cac"
+    SESSIONS = "sessions"
+    CONVERSION_RATE = "conversion_rate"
 
-class AnalyticsData(BaseModel):
-    user_id: str
-    platform: PlatformType
-    date: datetime
-    metrics: Dict[str, Any]
-    raw_data: Optional[Dict[str, Any]] = None
+class AnalyticsRequest(BaseModel):
+    platforms: List[Platform]
+    time_range: TimeRange
+    metrics: List[MetricType]
 
-class DashboardMetrics(BaseModel):
-    total_revenue: float
-    total_orders: int
-    avg_order_value: float
-    total_ad_spend: float
-    roas: float
-    conversion_rate: float
-    total_sessions: int
-    bounce_rate: float
-    
-class PlatformMetrics(BaseModel):
-    platform: str
-    revenue: float
-    orders: int
-    sessions: int
-    conversion_rate: float
+class MetricData(BaseModel):
+    metric: MetricType
+    value: float
+    change_percentage: Optional[float] = None
+    platform: Optional[Platform] = None
+
+class ChartData(BaseModel):
+    labels: List[str]
+    datasets: List[Dict[str, Any]]
+
+class DashboardData(BaseModel):
+    metrics: List[MetricData]
+    charts: Dict[str, ChartData]
+    last_updated: datetime = datetime.utcnow()
+
+class IntegrationConfig(BaseModel):
+    platform: Platform
+    api_key: str
+    additional_config: Optional[Dict[str, Any]] = {}
+    is_active: bool = True
+    created_at: datetime = datetime.utcnow()

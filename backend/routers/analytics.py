@@ -1,143 +1,106 @@
 from fastapi import APIRouter, Depends, Query
-from models.analytics import TimeRange
+from typing import List, Optional
+from models.analytics import TimeRange, Platform, AnalyticsRequest
+from utils.auth import verify_token
 from database import get_database
+import random
 from datetime import datetime, timedelta
-import pandas as pd
-from google.cloud import bigquery
 
 router = APIRouter()
 
-@router.post("/export-to-bigquery")
-async def export_to_bigquery(
-    time_range: TimeRange = Query(TimeRange.DAYS_30),
-    current_user: dict = Depends(lambda: {"_id": "user123"})  # Mock user
+@router.post("/query")
+async def query_analytics(
+    request: AnalyticsRequest,
+    current_user: str = Depends(verify_token)
 ):
-    """Export analytics data to BigQuery"""
-    db = await get_database()
+    """Query analytics data based on specified criteria"""
     
-    # Calculate date range
-    days_map = {"7d": 7, "15d": 15, "30d": 30, "90d": 90}
-    days = days_map.get(time_range, 30)
-    start_date = datetime.utcnow() - timedelta(days=days)
+    # This would typically query BigQuery or your data warehouse
+    # For now, returning mock data
     
-    # Get analytics data
-    query = {
-        "user_id": str(current_user["_id"]),
-        "date": {"$gte": start_date}
-    }
+    results = {}
     
-    analytics_data = []
-    async for doc in db.analytics_data.find(query):
-        analytics_data.append(doc)
-    
-    # Convert to DataFrame
-    df_data = []
-    for doc in analytics_data:
-        metrics = doc.get("metrics", {})
-        df_data.append({
-            "user_id": doc["user_id"],
-            "platform": doc["platform"],
-            "date": doc["date"],
-            "revenue": metrics.get("revenue", 0),
-            "orders": metrics.get("orders", 0),
-            "sessions": metrics.get("sessions", 0),
-            "ad_spend": metrics.get("ad_spend", 0),
-            "clicks": metrics.get("clicks", 0),
-            "impressions": metrics.get("impressions", 0)
-        })
-    
-    df = pd.DataFrame(df_data)
-    
-    # Export to BigQuery (mock implementation)
-    # In production, you would use proper BigQuery client
-    try:
-        # client = bigquery.Client()
-        # table_id = "your-project.dataset.analytics_data"
-        # job = client.load_table_from_dataframe(df, table_id)
-        # job.result()
-        
-        return {
-            "message": "Data exported to BigQuery successfully",
-            "records_exported": len(df_data)
-        }
-    except Exception as e:
-        return {
-            "error": f"Export failed: {str(e)}",
-            "records_exported": 0
-        }
-
-@router.get("/p-and-l")
-async def get_profit_and_loss(
-    time_range: TimeRange = Query(TimeRange.DAYS_30),
-    platforms: str = Query("all"),
-    current_user: dict = Depends(lambda: {"_id": "user123"})  # Mock user
-):
-    """Generate Profit & Loss report"""
-    db = await get_database()
-    
-    # Calculate date range
-    days_map = {"7d": 7, "15d": 15, "30d": 30, "90d": 90}
-    days = days_map.get(time_range, 30)
-    start_date = datetime.utcnow() - timedelta(days=days)
-    
-    # Parse platforms
-    if platforms == "all":
-        platform_filter = {}
-    else:
-        platform_list = platforms.split(",")
-        platform_filter = {"platform": {"$in": platform_list}}
-    
-    # Build query
-    query = {
-        "user_id": str(current_user["_id"]),
-        "date": {"$gte": start_date},
-        **platform_filter
-    }
-    
-    # Get analytics data
-    analytics_data = []
-    async for doc in db.analytics_data.find(query):
-        analytics_data.append(doc)
-    
-    # Calculate P&L
-    total_revenue = sum(doc.get("metrics", {}).get("revenue", 0) for doc in analytics_data)
-    total_ad_spend = sum(doc.get("metrics", {}).get("ad_spend", 0) for doc in analytics_data)
-    total_shipping_cost = sum(doc.get("metrics", {}).get("shipping_cost", 0) for doc in analytics_data)
-    
-    # Mock additional costs
-    cogs = total_revenue * 0.4  # 40% of revenue
-    marketplace_fees = total_revenue * 0.1  # 10% of revenue
-    other_expenses = total_revenue * 0.05  # 5% of revenue
-    
-    # Calculate profits
-    gross_profit = total_revenue - cogs
-    total_expenses = total_ad_spend + total_shipping_cost + marketplace_fees + other_expenses
-    net_profit = gross_profit - total_expenses
-    
-    # Calculate margins
-    gross_margin = (gross_profit / total_revenue) * 100 if total_revenue > 0 else 0
-    net_margin = (net_profit / total_revenue) * 100 if total_revenue > 0 else 0
+    for metric in request.metrics:
+        if metric == "revenue":
+            results[metric] = {
+                "total": random.uniform(50000, 200000),
+                "by_platform": {platform.value: random.uniform(10000, 50000) for platform in request.platforms}
+            }
+        elif metric == "orders":
+            results[metric] = {
+                "total": random.randint(500, 2000),
+                "by_platform": {platform.value: random.randint(100, 500) for platform in request.platforms}
+            }
+        elif metric == "aov":
+            results[metric] = {
+                "average": random.uniform(80, 250),
+                "by_platform": {platform.value: random.uniform(80, 250) for platform in request.platforms}
+            }
+        elif metric == "roas":
+            results[metric] = {
+                "average": random.uniform(3.0, 8.0),
+                "by_platform": {platform.value: random.uniform(3.0, 8.0) for platform in request.platforms}
+            }
     
     return {
-        "revenue": {
-            "total_revenue": total_revenue,
-            "gross_profit": gross_profit,
-            "gross_margin": gross_margin
-        },
+        "data": results,
+        "time_range": request.time_range,
+        "platforms": request.platforms,
+        "generated_at": datetime.utcnow()
+    }
+
+@router.get("/profit-loss")
+async def get_profit_loss(
+    time_range: TimeRange = TimeRange.LAST_30_DAYS,
+    platforms: str = Query("shopify,facebook_ads,google_ads"),
+    current_user: str = Depends(verify_token)
+):
+    """Generate P&L report"""
+    
+    platform_list = [Platform(p.strip()) for p in platforms.split(",")]
+    
+    # Mock P&L data
+    revenue = random.uniform(100000, 300000)
+    cogs = revenue * random.uniform(0.3, 0.5)
+    ad_spend = random.uniform(10000, 30000)
+    marketplace_fees = revenue * random.uniform(0.05, 0.15)
+    shipping_costs = random.uniform(5000, 15000)
+    other_costs = random.uniform(2000, 8000)
+    
+    gross_profit = revenue - cogs
+    net_profit = gross_profit - ad_spend - marketplace_fees - shipping_costs - other_costs
+    
+    return {
+        "revenue": revenue,
+        "cost_of_goods_sold": cogs,
+        "gross_profit": gross_profit,
+        "gross_margin": (gross_profit / revenue) * 100,
         "expenses": {
-            "cogs": cogs,
-            "ad_spend": total_ad_spend,
-            "shipping_cost": total_shipping_cost,
+            "ad_spend": ad_spend,
             "marketplace_fees": marketplace_fees,
-            "other_expenses": other_expenses,
-            "total_expenses": total_expenses
+            "shipping_costs": shipping_costs,
+            "other_costs": other_costs
         },
-        "profit": {
-            "net_profit": net_profit,
-            "net_margin": net_margin
-        },
-        "metrics": {
-            "roas": total_revenue / total_ad_spend if total_ad_spend > 0 else 0,
-            "cost_per_order": total_expenses / sum(doc.get("metrics", {}).get("orders", 0) for doc in analytics_data)
-        }
+        "net_profit": net_profit,
+        "net_margin": (net_profit / revenue) * 100,
+        "time_range": time_range,
+        "platforms": platform_list,
+        "generated_at": datetime.utcnow()
+    }
+
+@router.get("/export/csv")
+async def export_analytics_csv(
+    time_range: TimeRange = TimeRange.LAST_30_DAYS,
+    platforms: str = Query("shopify,facebook_ads,google_ads"),
+    current_user: str = Depends(verify_token)
+):
+    """Export analytics data as CSV"""
+    
+    # This would generate and return a CSV file
+    # For now, return a success message
+    
+    return {
+        "message": "CSV export initiated",
+        "download_url": "/api/analytics/download/analytics_export.csv",
+        "expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat()
     }

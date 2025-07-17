@@ -1,74 +1,111 @@
-import requests
+import httpx
+from typing import Dict, List, Any
 from datetime import datetime, timedelta
 
 class FacebookAdsClient:
-    def __init__(self, credentials):
-        self.access_token = credentials["access_token"]
-        self.ad_account_id = credentials["ad_account_id"]
+    def __init__(self, access_token: str):
+        self.access_token = access_token
         self.base_url = "https://graph.facebook.com/v18.0"
+        self.headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
     
-    async def test_connection(self):
-        """Test Facebook Ads connection"""
+    async def test_connection(self) -> bool:
+        """Test the Facebook Ads API connection"""
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{self.base_url}/me",
+                    headers=self.headers,
+                    timeout=10.0
+                )
+                response.raise_for_status()
+                return True
+            except Exception as e:
+                raise Exception(f"Facebook Ads connection failed: {str(e)}")
+    
+    async def fetch_ad_accounts(self) -> List[Dict[str, Any]]:
+        """Fetch ad accounts"""
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{self.base_url}/me/adaccounts",
+                    headers=self.headers,
+                    params={"fields": "id,name,account_status"},
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data.get("data", [])
+            except Exception as e:
+                raise Exception(f"Failed to fetch Facebook ad accounts: {str(e)}")
+    
+    async def fetch_campaigns(self, ad_account_id: str, days: int = 30) -> List[Dict[str, Any]]:
+        """Fetch campaigns for an ad account"""
+        since_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        until_date = datetime.now().strftime("%Y-%m-%d")
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{self.base_url}/{ad_account_id}/campaigns",
+                    headers=self.headers,
+                    params={
+                        "fields": "id,name,status,spend,impressions,clicks,conversions",
+                        "time_range": f"{{'since':'{since_date}','until':'{until_date}'}}"
+                    },
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data.get("data", [])
+            except Exception as e:
+                raise Exception(f"Failed to fetch Facebook campaigns: {str(e)}")
+    
+    async def fetch_insights(self, ad_account_id: str, days: int = 30) -> Dict[str, Any]:
+        """Fetch ad insights"""
+        since_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        until_date = datetime.now().strftime("%Y-%m-%d")
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{self.base_url}/{ad_account_id}/insights",
+                    headers=self.headers,
+                    params={
+                        "fields": "spend,impressions,clicks,conversions,ctr,cpc,cpm,roas",
+                        "time_range": f"{{'since':'{since_date}','until':'{until_date}'}}"
+                    },
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data.get("data", [])
+            except Exception as e:
+                raise Exception(f"Failed to fetch Facebook insights: {str(e)}")
+    
+    async def fetch_data(self) -> Dict[str, Any]:
+        """Fetch all relevant data from Facebook Ads"""
         try:
-            url = f"{self.base_url}/me"
-            params = {"access_token": self.access_token}
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            return True
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Facebook Ads connection failed: {str(e)}")
-    
-    async def fetch_data(self, days=30):
-        """Fetch Facebook Ads data"""
-        end_date = datetime.utcnow()
-        start_date = end_date - timedelta(days=days)
-        
-        # Format dates for Facebook API
-        start_date_str = start_date.strftime("%Y-%m-%d")
-        end_date_str = end_date.strftime("%Y-%m-%d")
-        
-        # Fetch ad insights
-        url = f"{self.base_url}/act_{self.ad_account_id}/insights"
-        params = {
-            "access_token": self.access_token,
-            "time_range": f"{{'since':'{start_date_str}','until':'{end_date_str}'}}",
-            "fields": "impressions,clicks,spend,reach,actions,cost_per_action_type",
-            "level": "account"
-        }
-        
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Parse metrics
-        insights = data.get("data", [])
-        total_spend = sum(float(insight.get("spend", 0)) for insight in insights)
-        total_impressions = sum(int(insight.get("impressions", 0)) for insight in insights)
-        total_clicks = sum(int(insight.get("clicks", 0)) for insight in insights)
-        total_reach = sum(int(insight.get("reach", 0)) for insight in insights)
-        
-        # Calculate derived metrics
-        cpc = total_spend / total_clicks if total_clicks > 0 else 0
-        ctr = (total_clicks / total_impressions) * 100 if total_impressions > 0 else 0
-        
-        # Mock conversions and revenue for ROAS calculation
-        total_conversions = total_clicks * 0.02  # 2% conversion rate
-        total_revenue = total_conversions * 50  # $50 per conversion
-        roas = total_revenue / total_spend if total_spend > 0 else 0
-        
-        metrics = {
-            "ad_spend": total_spend,
-            "impressions": total_impressions,
-            "clicks": total_clicks,
-            "reach": total_reach,
-            "cpc": cpc,
-            "ctr": ctr,
-            "conversions": total_conversions,
-            "revenue": total_revenue,
-            "roas": roas
-        }
-        
-        return {
-            "metrics": metrics,
-            "raw_data": {"insights": insights}
-        }
+            ad_accounts = await self.fetch_ad_accounts()
+            all_campaigns = []
+            all_insights = []
+            
+            for account in ad_accounts:
+                account_id = account["id"]
+                campaigns = await self.fetch_campaigns(account_id)
+                insights = await self.fetch_insights(account_id)
+                
+                all_campaigns.extend(campaigns)
+                all_insights.extend(insights)
+            
+            return {
+                "platform": "facebook_ads",
+                "ad_accounts": ad_accounts,
+                "campaigns": all_campaigns,
+                "insights": all_insights,
+                "fetched_at": datetime.utcnow().isoformat()
+            }
+        except Exception as e:
+            raise Exception(f"Failed to fetch Facebook Ads data: {str(e)}")

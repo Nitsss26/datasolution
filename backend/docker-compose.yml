@@ -1,42 +1,56 @@
 version: '3.8'
 
 services:
-  app:
+  api:
     build: .
     ports:
       - "8000:8000"
     environment:
       - MONGODB_URL=mongodb://mongo:27017
       - DATABASE_NAME=d2c_analytics
-      - SECRET_KEY=your-secret-key-here
-      - GOOGLE_CLOUD_PROJECT=your-project-id
+      - SECRET_KEY=your-secret-key-here-change-in-production
     depends_on:
       - mongo
       - redis
     volumes:
       - .:/app
     networks:
-      - app-network
+      - d2c-network
 
   mongo:
-    image: mongo:7
+    image: mongo:7.0
     ports:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
     networks:
-      - app-network
+      - d2c-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.2-alpine
     ports:
       - "6379:6379"
     networks:
-      - app-network
+      - d2c-network
+
+  worker:
+    build: .
+    command: celery -A main.celery worker --loglevel=info
+    environment:
+      - MONGODB_URL=mongodb://mongo:27017
+      - DATABASE_NAME=d2c_analytics
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongo
+      - redis
+    volumes:
+      - .:/app
+    networks:
+      - d2c-network
 
 volumes:
   mongo_data:
 
 networks:
-  app-network:
+  d2c-network:
     driver: bridge

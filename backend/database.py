@@ -1,5 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ASCENDING, DESCENDING
+from pymongo.server_api import ServerApi
 import os
 from dotenv import load_dotenv
 
@@ -13,15 +13,15 @@ database = None
 
 async def init_db():
     global client, database
-    client = AsyncIOMotorClient(MONGODB_URL)
+    client = AsyncIOMotorClient(MONGODB_URL, server_api=ServerApi('1'))
     database = client[DATABASE_NAME]
     
-    # Create indexes
-    await database.users.create_index("email", unique=True)
-    await database.user_integrations.create_index([("user_id", ASCENDING), ("platform", ASCENDING)])
-    await database.analytics_data.create_index([("user_id", ASCENDING), ("date", DESCENDING)])
-    
-    print("Database initialized successfully")
+    # Test connection
+    try:
+        await client.admin.command('ping')
+        print("Successfully connected to MongoDB!")
+    except Exception as e:
+        print(f"Error connecting to MongoDB: {e}")
 
 async def get_database():
     return database
