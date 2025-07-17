@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from bson import ObjectId
 
@@ -19,50 +19,45 @@ class PyObjectId(ObjectId):
         field_schema.update(type="string")
 
 class MetricData(BaseModel):
-    date: datetime
     value: float
-    platform: str
+    change: float
+    trend: str  # "up", "down", "stable"
 
-class DashboardMetrics(BaseModel):
-    total_revenue: float
-    total_orders: int
-    avg_order_value: float
-    conversion_rate: float
-    roas: float
-    acos: float
+class ChartDataPoint(BaseModel):
+    date: str
+    value: float
+    label: Optional[str] = None
 
-class ChartData(BaseModel):
-    labels: List[str]
-    datasets: List[Dict[str, Any]]
-
-class PlatformMetrics(BaseModel):
+class PlatformMetric(BaseModel):
     platform: str
     revenue: float
     orders: int
-    roas: float
-    spend: float
+    aov: float
+    roas: Optional[float] = None
 
 class Integration(BaseModel):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
     user_id: str
     platform: str
+    platform_name: str
+    status: str  # "connected", "disconnected", "error"
     credentials: Dict[str, Any]
-    is_active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
     last_sync: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
-class IntegrationCreate(BaseModel):
-    platform: str
-    credentials: Dict[str, Any]
+class CustomerSegment(BaseModel):
+    segment: str
+    count: int
+    revenue: float
+    percentage: float
 
-class IntegrationResponse(BaseModel):
-    id: str
-    platform: str
-    is_active: bool
-    created_at: datetime
-    last_sync: Optional[datetime] = None
+class ProductPerformance(BaseModel):
+    product_name: str
+    revenue: float
+    units_sold: int
+    profit_margin: float

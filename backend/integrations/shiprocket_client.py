@@ -1,5 +1,5 @@
 import requests
-from typing import Dict, Any, List
+from typing import Dict, List, Any, Optional
 import os
 
 class ShiprocketClient:
@@ -9,49 +9,84 @@ class ShiprocketClient:
         self.base_url = "https://apiv2.shiprocket.in/v1/external"
         self.token = None
     
-    async def authenticate(self) -> bool:
-        """Authenticate with Shiprocket"""
+    async def _authenticate(self) -> str:
+        """Authenticate with Shiprocket API"""
         try:
-            response = requests.post(
-                f"{self.base_url}/auth/login",
-                json={"email": self.email, "password": self.password}
-            )
-            if response.status_code == 200:
-                self.token = response.json().get("token")
-                return True
-            return False
-        except:
-            return False
+            url = f"{self.base_url}/auth/login"
+            data = {
+                "email": self.email,
+                "password": self.password
+            }
+            
+            response = requests.post(url, json=data)
+            response.raise_for_status()
+            
+            self.token = response.json().get("token")
+            return self.token
+        except Exception as e:
+            print(f"Error authenticating with Shiprocket: {e}")
+            return None
     
-    async def test_connection(self) -> bool:
-        """Test Shiprocket connection"""
-        return await self.authenticate()
-    
-    async def get_orders(self) -> List[Dict[str, Any]]:
-        """Get shipping orders"""
-        if not self.token:
-            await self.authenticate()
-        
+    async def get_orders(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Fetch orders from Shiprocket"""
         try:
+            if not self.token:
+                await self._authenticate()
+            
+            url = f"{self.base_url}/orders"
             headers = {"Authorization": f"Bearer {self.token}"}
-            response = requests.get(f"{self.base_url}/orders", headers=headers)
-            if response.status_code == 200:
-                return response.json().get("data", [])
-            return []
-        except:
+            params = {"per_page": limit}
+            
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            
+            return response.json().get("data", [])
+        except Exception as e:
+            print(f"Error fetching Shiprocket orders: {e}")
             return []
     
-    async def get_shipping_metrics(self) -> Dict[str, Any]:
-        """Get shipping metrics"""
-        orders = await self.get_orders()
-        
-        total_shipments = len(orders)
-        delivered = sum(1 for order in orders if order.get("status") == "DELIVERED")
-        in_transit = sum(1 for order in orders if order.get("status") == "IN_TRANSIT")
-        
-        return {
-            "total_shipments": total_shipments,
-            "delivered": delivered,
-            "in_transit": in_transit,
-            "delivery_rate": round((delivered / total_shipments * 100) if total_shipments > 0 else 0, 2)
-        }
+    async def get_shipments(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Fetch shipments from Shiprocket"""
+        try:
+            if not self.token:
+                await self._authenticate()
+            
+            url = f"{self.base_url}/shipments"
+            headers = {"Authorization": f"Bearer {self.token}"}
+            params = {"per_page": limit}
+            
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            
+            return response.json().get("data", [])
+        except Exception as e:
+            print(f"Error fetching Shiprocket shipments: {e}")
+            return []
+    
+    async def track_shipment(self, awb_code: str) -> Dict[str, Any]:
+        """Track a specific shipment"""
+        try:
+            if not self.token:
+                await self._authenticate()
+            
+            url = f"{self.base_url}/courier/track/awb/{awb_code}"
+            headers = {"Authorization": f"Bearer {self.token}"}
+            
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            
+            return response.json()
+        except Exception as e:
+            print(f"Error tracking Shiprocket shipment: {e}")
+            return {}
+    
+    def test_connection(self) -> bool:
+        """Test Shiprocket API connection"""
+        try:
+            # Test authentication
+            url = f"{self.base_url}/auth/login"
+            data = {"email": self.email, "password": self.password}
+            response = requests.post(url, json=data)
+            return response.status_code == 200
+        except:
+            return False
