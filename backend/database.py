@@ -1,31 +1,38 @@
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.server_api import ServerApi
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+class Database:
+    client: AsyncIOMotorClient = None
+    database = None
 
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-DATABASE_NAME = os.getenv("DATABASE_NAME", "d2c_analytics")
+db = Database()
 
-client = None
-database = None
+async def get_database():
+    return db.database
 
-async def init_db():
-    global client, database
-    client = AsyncIOMotorClient(MONGODB_URL, server_api=ServerApi('1'))
-    database = client[DATABASE_NAME]
+async def connect_to_mongo():
+    """Create database connection"""
+    db.client = AsyncIOMotorClient(
+        os.getenv("MONGODB_URL", "mongodb://localhost:27017"),
+        server_api=ServerApi('1')
+    )
+    db.database = db.client[os.getenv("DATABASE_NAME", "d2c_analytics")]
     
-    # Test connection
+    # Test the connection
     try:
-        await client.admin.command('ping')
+        await db.client.admin.command('ping')
         print("Successfully connected to MongoDB!")
     except Exception as e:
         print(f"Error connecting to MongoDB: {e}")
 
-async def get_database():
-    return database
+async def close_mongo_connection():
+    """Close database connection"""
+    if db.client:
+        db.client.close()
+        print("Disconnected from MongoDB!")
 
-async def close_db():
-    if client:
-        client.close()
+async def get_collection(collection_name: str):
+    """Get a collection from the database"""
+    database = await get_database()
+    return database[collection_name]

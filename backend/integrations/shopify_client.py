@@ -1,99 +1,61 @@
-import httpx
-import asyncio
-from typing import Dict, List, Any
-from datetime import datetime, timedelta
+import requests
+from typing import Dict, Any, List
+import os
 
 class ShopifyClient:
-    def __init__(self, api_key: str, shop_domain: str):
-        self.api_key = api_key
+    def __init__(self, shop_domain: str, access_token: str):
         self.shop_domain = shop_domain
+        self.access_token = access_token
         self.base_url = f"https://{shop_domain}.myshopify.com/admin/api/2023-10"
         self.headers = {
-            "X-Shopify-Access-Token": api_key,
+            "X-Shopify-Access-Token": access_token,
             "Content-Type": "application/json"
         }
     
-    async def test_connection(self) -> bool:
-        """Test the Shopify API connection"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/shop.json",
-                    headers=self.headers,
-                    timeout=10.0
-                )
-                response.raise_for_status()
-                return True
-            except Exception as e:
-                raise Exception(f"Shopify connection failed: {str(e)}")
-    
-    async def fetch_orders(self, days: int = 30) -> List[Dict[str, Any]]:
+    async def get_orders(self, limit: int = 50, status: str = "any") -> List[Dict[str, Any]]:
         """Fetch orders from Shopify"""
-        since_date = (datetime.now() - timedelta(days=days)).isoformat()
-        
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/orders.json",
-                    headers=self.headers,
-                    params={
-                        "status": "any",
-                        "created_at_min": since_date,
-                        "limit": 250
-                    },
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data.get("orders", [])
-            except Exception as e:
-                raise Exception(f"Failed to fetch Shopify orders: {str(e)}")
-    
-    async def fetch_products(self) -> List[Dict[str, Any]]:
-        """Fetch products from Shopify"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/products.json",
-                    headers=self.headers,
-                    params={"limit": 250},
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data.get("products", [])
-            except Exception as e:
-                raise Exception(f"Failed to fetch Shopify products: {str(e)}")
-    
-    async def fetch_analytics(self, days: int = 30) -> Dict[str, Any]:
-        """Fetch analytics data from Shopify"""
-        orders = await self.fetch_orders(days)
-        
-        # Calculate metrics
-        total_revenue = sum(float(order.get("total_price", 0)) for order in orders)
-        total_orders = len(orders)
-        avg_order_value = total_revenue / total_orders if total_orders > 0 else 0
-        
-        return {
-            "total_revenue": total_revenue,
-            "total_orders": total_orders,
-            "average_order_value": avg_order_value,
-            "orders": orders
-        }
-    
-    async def fetch_data(self) -> Dict[str, Any]:
-        """Fetch all relevant data from Shopify"""
         try:
-            orders = await self.fetch_orders()
-            products = await self.fetch_products()
-            analytics = await self.fetch_analytics()
+            url = f"{self.base_url}/orders.json"
+            params = {"limit": limit, "status": status}
+            
+            response = requests.get(url, headers=self.headers, params=params)
+            response.raise_for_status()
+            
+            return response.json().get("orders", [])
+        except Exception as e:
+            print(f"Error fetching Shopify orders: {e}")
+            return []
+    
+    async def get_products(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Fetch products from Shopify"""
+        try:
+            url = f"{self.base_url}/products.json"
+            params = {"limit": limit}
+            
+            response = requests.get(url, headers=self.headers, params=params)
+            response.raise_for_status()
+            
+            return response.json().get("products", [])
+        except Exception as e:
+            print(f"Error fetching Shopify products: {e}")
+            return []
+    
+    async def get_analytics(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        """Get analytics data from Shopify"""
+        try:
+            # This would typically involve multiple API calls to get comprehensive analytics
+            orders = await self.get_orders(limit=250)
+            
+            total_revenue = sum(float(order.get("total_price", 0)) for order in orders)
+            total_orders = len(orders)
+            avg_order_value = total_revenue / total_orders if total_orders > 0 else 0
             
             return {
-                "platform": "shopify",
-                "orders": orders,
-                "products": products,
-                "analytics": analytics,
-                "fetched_at": datetime.utcnow().isoformat()
+                "total_revenue": total_revenue,
+                "total_orders": total_orders,
+                "average_order_value": avg_order_value,
+                "platform": "shopify"
             }
         except Exception as e:
-            raise Exception(f"Failed to fetch Shopify data: {str(e)}")
+            print(f"Error fetching Shopify analytics: {e}")
+            return {}

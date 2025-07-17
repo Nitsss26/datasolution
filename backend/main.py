@@ -1,55 +1,53 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer
-import uvicorn
-from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 import os
+from dotenv import load_dotenv
 
-from database import init_db
+from database import connect_to_mongo, close_mongo_connection
 from routers import auth, dashboard, integrations, analytics
 
+# Load environment variables
 load_dotenv()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await connect_to_mongo()
+    yield
+    # Shutdown
+    await close_mongo_connection()
+
 app = FastAPI(
-    title="D2C Analytics SaaS",
-    description="All-in-One D2C Data Solution",
-    version="1.0.0"
+    title="D2C Analytics API",
+    description="API for D2C Analytics SaaS Platform",
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Security
-security = HTTPBearer()
-
 # Include routers
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
-app.include_router(integrations.router, prefix="/api/integrations", tags=["Integrations"])
-app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
-
-@app.on_event("startup")
-async def startup_event():
-    await init_db()
+app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
+app.include_router(integrations.router, prefix="/api/integrations", tags=["integrations"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
 
 @app.get("/")
 async def root():
-    return {"message": "D2C Analytics SaaS API", "version": "1.0.0"}
+    return {"message": "D2C Analytics API is running!"}
 
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
-    )
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,111 +1,105 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List
-from models.analytics import DashboardData, TimeRange, Platform, MetricData, ChartData
+from fastapi import APIRouter, Depends
+from typing import Dict, Any
 from utils.auth import verify_token
-from database import get_database
+from models.analytics import DashboardMetrics, ChartData
 import random
 from datetime import datetime, timedelta
 
 router = APIRouter()
 
-@router.get("/metrics", response_model=DashboardData)
+@router.get("/metrics", response_model=DashboardMetrics)
 async def get_dashboard_metrics(
-    time_range: TimeRange = TimeRange.LAST_30_DAYS,
-    platforms: str = "shopify,facebook_ads,google_ads",
+    time_range: str = "30d",
     current_user: str = Depends(verify_token)
 ):
-    """Get dashboard metrics for specified platforms and time range"""
-    
-    # Parse platforms
-    platform_list = [Platform(p.strip()) for p in platforms.split(",")]
-    
-    # Generate mock data (replace with actual data fetching logic)
-    metrics = []
-    
-    # Revenue metrics
-    total_revenue = random.uniform(50000, 200000)
-    metrics.append(MetricData(
-        metric="revenue",
-        value=total_revenue,
-        change_percentage=random.uniform(-10, 25)
-    ))
-    
-    # Orders
-    total_orders = random.randint(500, 2000)
-    metrics.append(MetricData(
-        metric="orders",
-        value=total_orders,
-        change_percentage=random.uniform(-5, 30)
-    ))
-    
-    # AOV
-    aov = total_revenue / total_orders
-    metrics.append(MetricData(
-        metric="aov",
-        value=aov,
-        change_percentage=random.uniform(-8, 15)
-    ))
-    
-    # ROAS
-    metrics.append(MetricData(
-        metric="roas",
-        value=random.uniform(3.5, 8.0),
-        change_percentage=random.uniform(-15, 20)
-    ))
-    
-    # Generate chart data
-    days = int(time_range.value.replace('d', ''))
-    dates = [(datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(days, 0, -1)]
-    
-    revenue_chart = ChartData(
-        labels=dates,
-        datasets=[{
-            "label": "Revenue",
-            "data": [random.uniform(1000, 5000) for _ in dates],
-            "borderColor": "rgb(59, 130, 246)",
-            "backgroundColor": "rgba(59, 130, 246, 0.1)"
-        }]
+    # Mock data - replace with actual database queries
+    return DashboardMetrics(
+        total_revenue=125000.50,
+        total_orders=1250,
+        average_order_value=100.00,
+        conversion_rate=3.5,
+        return_on_ad_spend=4.2,
+        customer_acquisition_cost=25.00
     )
-    
-    orders_chart = ChartData(
-        labels=dates,
-        datasets=[{
-            "label": "Orders",
-            "data": [random.randint(10, 50) for _ in dates],
-            "borderColor": "rgb(16, 185, 129)",
-            "backgroundColor": "rgba(16, 185, 129, 0.1)"
-        }]
-    )
-    
-    platform_revenue_chart = ChartData(
-        labels=[p.value.replace('_', ' ').title() for p in platform_list],
-        datasets=[{
-            "label": "Revenue by Platform",
-            "data": [random.uniform(10000, 50000) for _ in platform_list],
-            "backgroundColor": [
-                "rgba(59, 130, 246, 0.8)",
-                "rgba(16, 185, 129, 0.8)",
-                "rgba(245, 158, 11, 0.8)",
-                "rgba(239, 68, 68, 0.8)"
-            ]
-        }]
-    )
-    
-    charts = {
-        "revenue_trend": revenue_chart,
-        "orders_trend": orders_chart,
-        "platform_revenue": platform_revenue_chart
-    }
-    
-    return DashboardData(metrics=metrics, charts=charts)
 
-@router.get("/summary")
-async def get_dashboard_summary(current_user: str = Depends(verify_token)):
-    """Get dashboard summary statistics"""
-    return {
-        "total_revenue": random.uniform(100000, 500000),
-        "total_orders": random.randint(1000, 5000),
-        "active_platforms": 4,
-        "conversion_rate": random.uniform(2.5, 8.0),
-        "last_sync": datetime.utcnow().isoformat()
-    }
+@router.get("/charts/revenue", response_model=ChartData)
+async def get_revenue_chart(
+    time_range: str = "30d",
+    current_user: str = Depends(verify_token)
+):
+    # Generate mock data for the last 30 days
+    days = 30 if time_range == "30d" else 7
+    labels = []
+    data = []
+    
+    for i in range(days):
+        date = datetime.now() - timedelta(days=days-i-1)
+        labels.append(date.strftime("%Y-%m-%d"))
+        data.append(random.randint(1000, 5000))
+    
+    return ChartData(
+        labels=labels,
+        datasets=[
+            {
+                "label": "Revenue",
+                "data": data,
+                "borderColor": "rgb(59, 130, 246)",
+                "backgroundColor": "rgba(59, 130, 246, 0.1)",
+                "tension": 0.4
+            }
+        ]
+    )
+
+@router.get("/charts/orders", response_model=ChartData)
+async def get_orders_chart(
+    time_range: str = "30d",
+    current_user: str = Depends(verify_token)
+):
+    days = 30 if time_range == "30d" else 7
+    labels = []
+    data = []
+    
+    for i in range(days):
+        date = datetime.now() - timedelta(days=days-i-1)
+        labels.append(date.strftime("%Y-%m-%d"))
+        data.append(random.randint(10, 50))
+    
+    return ChartData(
+        labels=labels,
+        datasets=[
+            {
+                "label": "Orders",
+                "data": data,
+                "borderColor": "rgb(16, 185, 129)",
+                "backgroundColor": "rgba(16, 185, 129, 0.1)",
+                "tension": 0.4
+            }
+        ]
+    )
+
+@router.get("/charts/conversion", response_model=ChartData)
+async def get_conversion_chart(
+    time_range: str = "30d",
+    current_user: str = Depends(verify_token)
+):
+    days = 30 if time_range == "30d" else 7
+    labels = []
+    data = []
+    
+    for i in range(days):
+        date = datetime.now() - timedelta(days=days-i-1)
+        labels.append(date.strftime("%Y-%m-%d"))
+        data.append(round(random.uniform(2.0, 5.0), 2))
+    
+    return ChartData(
+        labels=labels,
+        datasets=[
+            {
+                "label": "Conversion Rate (%)",
+                "data": data,
+                "borderColor": "rgb(245, 158, 11)",
+                "backgroundColor": "rgba(245, 158, 11, 0.1)",
+                "tension": 0.4
+            }
+        ]
+    )

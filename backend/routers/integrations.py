@@ -1,154 +1,136 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List
-from models.analytics import IntegrationConfig, Platform
+from models.analytics import Integration, IntegrationCreate, IntegrationUpdate, PlatformMetrics
 from utils.auth import verify_token
-from database import get_database
-from integrations.shopify_client import ShopifyClient
-from integrations.facebook_ads_client import FacebookAdsClient
-from integrations.google_ads_client import GoogleAdsClient
-from integrations.shiprocket_client import ShiprocketClient
+from database import get_collection
+from bson import ObjectId
+import random
 
 router = APIRouter()
 
 @router.get("/", response_model=List[dict])
 async def get_integrations(current_user: str = Depends(verify_token)):
-    """Get all integrations for the current user"""
-    db = await get_database()
-    user = await db.users.find_one({"email": current_user})
+    integrations_collection = await get_collection("integrations")
     
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    integrations = await integrations_collection.find({"user_email": current_user}).to_list(100)
     
-    integrations = await db.integrations.find({"user_email": current_user}).to_list(100)
-    
-    # Convert ObjectId to string and remove sensitive data
+    # Convert ObjectId to string
     for integration in integrations:
-        integration["_id"] = str(integration["_id"])
-        integration.pop("api_key", None)  # Don't expose API keys
+        integration["id"] = str(integration["_id"])
+        del integration["_id"]
     
     return integrations
 
-@router.post("/connect")
-async def connect_integration(
-    platform: Platform,
-    api_key: str,
-    additional_config: dict = {},
+@router.post("/", response_model=dict)
+async def create_integration(
+    integration: IntegrationCreate,
     current_user: str = Depends(verify_token)
 ):
-    """Connect a new integration"""
-    db = await get_database()
-    
-    # Test the connection based on platform
-    try:
-        if platform == Platform.SHOPIFY:
-            client = ShopifyClient(api_key, additional_config.get("shop_domain"))
-            await client.test_connection()
-        elif platform == Platform.FACEBOOK_ADS:
-            client = FacebookAdsClient(api_key)
-            await client.test_connection()
-        elif platform == Platform.GOOGLE_ADS:
-            client = GoogleAdsClient(api_key, additional_config)
-            await client.test_connection()
-        elif platform == Platform.SHIPROCKET:
-            client = ShiprocketClient(api_key)
-            await client.test_connection()
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to connect to {platform.value}: {str(e)}"
-        )
-    
-    # Save integration
-    integration_data = {
-        "user_email": current_user,
-        "platform": platform.value,
-        "api_key": api_key,
-        "additional_config": additional_config,
-        "is_active": True,
-        "created_at": datetime.utcnow()
-    }
+    integrations_collection = await get_collection("integrations")
     
     # Check if integration already exists
-    existing = await db.integrations.find_one({
+    existing = await integrations_collection.find_one({
         "user_email": current_user,
-        "platform": platform.value
+        "platform": integration.platform
     })
     
     if existing:
-        # Update existing integration
-        await db.integrations.update_one(
-            {"_id": existing["_id"]},
-            {"$set": integration_data}
-        )
-        return {"message": f"{platform.value} integration updated successfully"}
-    else:
-        # Create new integration
-        result = await db.integrations.insert_one(integration_data)
-        return {"message": f"{platform.value} integration connected successfully", "id": str(result.inserted_id)}
+        raise HTTPException(status_code=400, detail="Integration already exists")
+    
+    integration_dict = integration.dict()
+    integration_dict["user_email"] = current_user
+    integration_dict["is_connected"] = True
+    
+    result = await integrations_collection.insert_one(integration_dict)
+    
+    return {"message": "Integration created successfully", "id": str(result.inserted_id)}
 
-@router.delete("/{platform}")
-async def disconnect_integration(
-    platform: Platform,
+@router.put("/{integration_id}", response_model=dict)
+async def update_integration(
+    integration_id: str,
+    integration: IntegrationUpdate,
     current_user: str = Depends(verify_token)
 ):
-    """Disconnect an integration"""
-    db = await get_database()
+    integrations_collection = await get_collection("integrations")
     
-    result = await db.integrations.delete_one({
-        "user_email": current_user,
-        "platform": platform.value
-    })
+    update_data = {k: v for k, v in integration.dict().items() if v is not None}
+    
+    result = await integrations_collection.update_one(
+        {"_id": ObjectId(integration_id), "user_email": current_user},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Integration not found")
+    
+    return {"message": "Integration updated successfully"}
+
+@router.delete("/{integration_id}", response_model=dict)
+async def delete_integration(
+    integration_id: str,
+    current_user: str = Depends(verify_token)
+):
+    integrations_collection = await get_collection("integrations")
+    
+    result = await integrations_collection.delete_one(
+        {"_id": ObjectId(integration_id), "user_email": current_user}
+    )
     
     if result.deleted_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Integration not found"
-        )
+        raise HTTPException(status_code=404, detail="Integration not found")
     
-    return {"message": f"{platform.value} integration disconnected successfully"}
+    return {"message": "Integration deleted successfully"}
 
-@router.post("/sync/{platform}")
-async def sync_platform_data(
-    platform: Platform,
+@router.post("/{integration_id}/sync", response_model=dict)
+async def sync_integration(
+    integration_id: str,
     current_user: str = Depends(verify_token)
 ):
-    """Manually sync data from a specific platform"""
-    db = await get_database()
+    integrations_collection = await get_collection("integrations")
     
-    # Get integration config
-    integration = await db.integrations.find_one({
-        "user_email": current_user,
-        "platform": platform.value
-    })
+    integration = await integrations_collection.find_one(
+        {"_id": ObjectId(integration_id), "user_email": current_user}
+    )
     
     if not integration:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Integration not found"
-        )
+        raise HTTPException(status_code=404, detail="Integration not found")
     
-    try:
-        # Sync data based on platform
-        if platform == Platform.SHOPIFY:
-            client = ShopifyClient(integration["api_key"], integration["additional_config"].get("shop_domain"))
-            data = await client.fetch_data()
-        elif platform == Platform.FACEBOOK_ADS:
-            client = FacebookAdsClient(integration["api_key"])
-            data = await client.fetch_data()
-        elif platform == Platform.GOOGLE_ADS:
-            client = GoogleAdsClient(integration["api_key"], integration["additional_config"])
-            data = await client.fetch_data()
-        elif platform == Platform.SHIPROCKET:
-            client = ShiprocketClient(integration["api_key"])
-            data = await client.fetch_data()
-        
-        # Store data in database (implement based on your data structure)
-        # await store_platform_data(current_user, platform, data)
-        
-        return {"message": f"Data synced successfully from {platform.value}", "records": len(data)}
+    # Mock sync process
+    await integrations_collection.update_one(
+        {"_id": ObjectId(integration_id)},
+        {"$set": {"last_sync": datetime.utcnow()}}
+    )
     
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to sync data: {str(e)}"
+    return {"message": "Sync completed successfully"}
+
+@router.get("/platforms/metrics", response_model=List[PlatformMetrics])
+async def get_platform_metrics(current_user: str = Depends(verify_token)):
+    # Mock platform metrics
+    platforms = [
+        PlatformMetrics(
+            platform="shopify",
+            revenue=75000.0,
+            orders=750,
+            aov=100.0,
+            roas=4.5,
+            spend=16666.67
+        ),
+        PlatformMetrics(
+            platform="facebook",
+            revenue=35000.0,
+            orders=350,
+            aov=100.0,
+            roas=3.8,
+            spend=9210.53
+        ),
+        PlatformMetrics(
+            platform="google",
+            revenue=15000.0,
+            orders=150,
+            aov=100.0,
+            roas=5.2,
+            spend=2884.62
         )
+    ]
+    
+    return platforms

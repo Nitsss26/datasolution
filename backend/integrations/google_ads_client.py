@@ -1,100 +1,45 @@
-import httpx
-from typing import Dict, List, Any
-from datetime import datetime, timedelta
+from typing import Dict, Any, List
+import os
 
 class GoogleAdsClient:
-    def __init__(self, access_token: str, config: Dict[str, Any]):
-        self.access_token = access_token
-        self.customer_id = config.get("customer_id")
-        self.base_url = "https://googleads.googleapis.com/v14"
-        self.headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-            "developer-token": config.get("developer_token"),
-            "login-customer-id": self.customer_id
-        }
+    def __init__(self, customer_id: str, developer_token: str, refresh_token: str, client_id: str, client_secret: str):
+        self.customer_id = customer_id
+        self.developer_token = developer_token
+        self.refresh_token = refresh_token
+        self.client_id = client_id
+        self.client_secret = client_secret
     
-    async def test_connection(self) -> bool:
-        """Test the Google Ads API connection"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/customers/{self.customer_id}",
-                    headers=self.headers,
-                    timeout=10.0
-                )
-                response.raise_for_status()
-                return True
-            except Exception as e:
-                raise Exception(f"Google Ads connection failed: {str(e)}")
-    
-    async def fetch_campaigns(self, days: int = 30) -> List[Dict[str, Any]]:
+    async def get_campaigns(self) -> List[Dict[str, Any]]:
         """Fetch campaigns from Google Ads"""
-        query = f"""
-        SELECT 
-            campaign.id,
-            campaign.name,
-            campaign.status,
-            metrics.cost_micros,
-            metrics.impressions,
-            metrics.clicks,
-            metrics.conversions
-        FROM campaign 
-        WHERE segments.date DURING LAST_{days}_DAYS
-        """
-        
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/customers/{self.customer_id}/googleAds:search",
-                    headers=self.headers,
-                    json={"query": query},
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data.get("results", [])
-            except Exception as e:
-                raise Exception(f"Failed to fetch Google Ads campaigns: {str(e)}")
-    
-    async def fetch_keywords(self, days: int = 30) -> List[Dict[str, Any]]:
-        """Fetch keyword performance"""
-        query = f"""
-        SELECT 
-            ad_group_criterion.keyword.text,
-            metrics.cost_micros,
-            metrics.impressions,
-            metrics.clicks,
-            metrics.conversions
-        FROM keyword_view 
-        WHERE segments.date DURING LAST_{days}_DAYS
-        """
-        
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/customers/{self.customer_id}/googleAds:search",
-                    headers=self.headers,
-                    json={"query": query},
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data.get("results", [])
-            except Exception as e:
-                raise Exception(f"Failed to fetch Google Ads keywords: {str(e)}")
-    
-    async def fetch_data(self) -> Dict[str, Any]:
-        """Fetch all relevant data from Google Ads"""
         try:
-            campaigns = await self.fetch_campaigns()
-            keywords = await self.fetch_keywords()
-            
+            # This would use the Google Ads API client
+            # For now, returning mock data
+            return [
+                {
+                    "id": "123456789",
+                    "name": "Search Campaign",
+                    "status": "ENABLED",
+                    "type": "SEARCH"
+                }
+            ]
+        except Exception as e:
+            print(f"Error fetching Google Ads campaigns: {e}")
+            return []
+    
+    async def get_performance_data(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        """Get performance data from Google Ads"""
+        try:
+            # This would use the Google Ads API to fetch real data
+            # For now, returning mock data
             return {
-                "platform": "google_ads",
-                "campaigns": campaigns,
-                "keywords": keywords,
-                "fetched_at": datetime.utcnow().isoformat()
+                "impressions": 10000,
+                "clicks": 500,
+                "cost": 1000.0,
+                "conversions": 25,
+                "conversion_rate": 5.0,
+                "cost_per_conversion": 40.0,
+                "platform": "google"
             }
         except Exception as e:
-            raise Exception(f"Failed to fetch Google Ads data: {str(e)}")
+            print(f"Error fetching Google Ads performance data: {e}")
+            return {}

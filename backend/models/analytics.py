@@ -1,55 +1,69 @@
-from pydantic import BaseModel
-from typing import Optional, Dict, List, Any
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
 from datetime import datetime
-from enum import Enum
+from bson import ObjectId
 
-class TimeRange(str, Enum):
-    LAST_7_DAYS = "7d"
-    LAST_15_DAYS = "15d"
-    LAST_30_DAYS = "30d"
-    LAST_90_DAYS = "90d"
+class PyObjectId(ObjectId):
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
 
-class Platform(str, Enum):
-    SHOPIFY = "shopify"
-    FACEBOOK_ADS = "facebook_ads"
-    GOOGLE_ADS = "google_ads"
-    SHIPROCKET = "shiprocket"
-    AMAZON = "amazon"
-    FLIPKART = "flipkart"
+    @classmethod
+    def validate(cls, v):
+        if not ObjectId.is_valid(v):
+            raise ValueError("Invalid objectid")
+        return ObjectId(v)
 
-class MetricType(str, Enum):
-    REVENUE = "revenue"
-    ORDERS = "orders"
-    AOV = "aov"
-    ROAS = "roas"
-    ACOS = "acos"
-    CAC = "cac"
-    SESSIONS = "sessions"
-    CONVERSION_RATE = "conversion_rate"
-
-class AnalyticsRequest(BaseModel):
-    platforms: List[Platform]
-    time_range: TimeRange
-    metrics: List[MetricType]
+    @classmethod
+    def __modify_schema__(cls, field_schema):
+        field_schema.update(type="string")
 
 class MetricData(BaseModel):
-    metric: MetricType
+    date: datetime
     value: float
-    change_percentage: Optional[float] = None
-    platform: Optional[Platform] = None
+    platform: str
+    metric_type: str
+
+class DashboardMetrics(BaseModel):
+    total_revenue: float
+    total_orders: int
+    average_order_value: float
+    conversion_rate: float
+    return_on_ad_spend: float
+    customer_acquisition_cost: float
 
 class ChartData(BaseModel):
     labels: List[str]
     datasets: List[Dict[str, Any]]
 
-class DashboardData(BaseModel):
-    metrics: List[MetricData]
-    charts: Dict[str, ChartData]
-    last_updated: datetime = datetime.utcnow()
+class PlatformMetrics(BaseModel):
+    platform: str
+    revenue: float
+    orders: int
+    aov: float
+    roas: float
+    spend: float
 
-class IntegrationConfig(BaseModel):
-    platform: Platform
-    api_key: str
-    additional_config: Optional[Dict[str, Any]] = {}
-    is_active: bool = True
-    created_at: datetime = datetime.utcnow()
+class Integration(BaseModel):
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    user_id: str
+    platform: str
+    platform_name: str
+    is_connected: bool = False
+    credentials: Dict[str, Any] = {}
+    last_sync: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+class IntegrationCreate(BaseModel):
+    platform: str
+    credentials: Dict[str, Any]
+
+class IntegrationUpdate(BaseModel):
+    credentials: Optional[Dict[str, Any]] = None
+    is_connected: Optional[bool] = None

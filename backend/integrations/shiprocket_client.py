@@ -1,88 +1,62 @@
-import httpx
-from typing import Dict, List, Any
-from datetime import datetime, timedelta
+import requests
+from typing import Dict, Any, List
+import os
 
 class ShiprocketClient:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self, email: str, password: str):
+        self.email = email
+        self.password = password
         self.base_url = "https://apiv2.shiprocket.in/v1/external"
-        self.headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
+        self.token = None
     
-    async def test_connection(self) -> bool:
-        """Test the Shiprocket API connection"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/orders",
-                    headers=self.headers,
-                    params={"per_page": 1},
-                    timeout=10.0
-                )
-                response.raise_for_status()
-                return True
-            except Exception as e:
-                raise Exception(f"Shiprocket connection failed: {str(e)}")
-    
-    async def fetch_orders(self, days: int = 30) -> List[Dict[str, Any]]:
-        """Fetch shipping orders from Shiprocket"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/orders",
-                    headers=self.headers,
-                    params={
-                        "per_page": 100,
-                        "page": 1
-                    },
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data.get("data", [])
-            except Exception as e:
-                raise Exception(f"Failed to fetch Shiprocket orders: {str(e)}")
-    
-    async def fetch_tracking_data(self, order_id: str) -> Dict[str, Any]:
-        """Fetch tracking data for a specific order"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/courier/track/awb/{order_id}",
-                    headers=self.headers,
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                return response.json()
-            except Exception as e:
-                raise Exception(f"Failed to fetch tracking data: {str(e)}")
-    
-    async def fetch_shipping_rates(self) -> List[Dict[str, Any]]:
-        """Fetch available shipping rates"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/courier/serviceability",
-                    headers=self.headers,
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data.get("data", [])
-            except Exception as e:
-                raise Exception(f"Failed to fetch shipping rates: {str(e)}")
-    
-    async def fetch_data(self) -> Dict[str, Any]:
-        """Fetch all relevant data from Shiprocket"""
+    async def authenticate(self):
+        """Authenticate with Shiprocket API"""
         try:
-            orders = await self.fetch_orders()
-            
-            return {
-                "platform": "shiprocket",
-                "orders": orders,
-                "fetched_at": datetime.utcnow().isoformat()
+            url = f"{self.base_url}/auth/login"
+            data = {
+                "email": self.email,
+                "password": self.password
             }
+            
+            response = requests.post(url, json=data)
+            response.raise_for_status()
+            
+            self.token = response.json().get("token")
+            return self.token
         except Exception as e:
-            raise Exception(f"Failed to fetch Shiprocket data: {str(e)}")
+            print(f"Error authenticating with Shiprocket: {e}")
+            return None
+    
+    async def get_orders(self) -> List[Dict[str, Any]]:
+        """Fetch orders from Shiprocket"""
+        try:
+            if not self.token:
+                await self.authenticate()
+            
+            url = f"{self.base_url}/orders"
+            headers = {"Authorization": f"Bearer {self.token}"}
+            
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            
+            return response.json().get("data", [])
+        except Exception as e:
+            print(f"Error fetching Shiprocket orders: {e}")
+            return []
+    
+    async def get_tracking_data(self, order_id: str) -> Dict[str, Any]:
+        """Get tracking data for an order"""
+        try:
+            if not self.token:
+                await self.authenticate()
+            
+            url = f"{self.base_url}/courier/track/awb/{order_id}"
+            headers = {"Authorization": f"Bearer {self.token}"}
+            
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            
+            return response.json()
+        except Exception as e:
+            print(f"Error fetching tracking data: {e}")
+            return {}

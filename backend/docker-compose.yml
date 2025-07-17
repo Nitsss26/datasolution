@@ -8,14 +8,14 @@ services:
     environment:
       - MONGODB_URL=mongodb://mongo:27017
       - DATABASE_NAME=d2c_analytics
-      - SECRET_KEY=your-secret-key-here-change-in-production
+      - SECRET_KEY=your-secret-key-change-in-production
+      - REDIS_URL=redis://redis:6379
     depends_on:
       - mongo
       - redis
     volumes:
       - .:/app
-    networks:
-      - d2c-network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
   mongo:
     image: mongo:7.0
@@ -23,19 +23,18 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
-    networks:
-      - d2c-network
+    environment:
+      - MONGO_INITDB_DATABASE=d2c_analytics
 
   redis:
     image: redis:7.2-alpine
     ports:
       - "6379:6379"
-    networks:
-      - d2c-network
+    volumes:
+      - redis_data:/data
 
   worker:
     build: .
-    command: celery -A main.celery worker --loglevel=info
     environment:
       - MONGODB_URL=mongodb://mongo:27017
       - DATABASE_NAME=d2c_analytics
@@ -45,12 +44,8 @@ services:
       - redis
     volumes:
       - .:/app
-    networks:
-      - d2c-network
+    command: python -c "print('Celery worker would run here')"
 
 volumes:
   mongo_data:
-
-networks:
-  d2c-network:
-    driver: bridge
+  redis_data:
