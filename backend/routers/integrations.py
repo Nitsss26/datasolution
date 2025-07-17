@@ -1,136 +1,194 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List
-from models.analytics import Integration, IntegrationCreate, IntegrationUpdate, PlatformMetrics
+from models.analytics import IntegrationCreate, IntegrationResponse
 from utils.auth import verify_token
-from database import get_collection
+from database import get_database
+from datetime import datetime
 from bson import ObjectId
-import random
 
 router = APIRouter()
+security = HTTPBearer()
 
-@router.get("/", response_model=List[dict])
-async def get_integrations(current_user: str = Depends(verify_token)):
-    integrations_collection = await get_collection("integrations")
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token_data = await verify_token(credentials.credentials)
+    if not token_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
+    return token_data
+
+@router.get("/", response_model=List[IntegrationResponse])
+async def get_integrations(current_user: dict = Depends(get_current_user)):
+    """Get all integrations for current user"""
+    db = get_database()
     
-    integrations = await integrations_collection.find({"user_email": current_user}).to_list(100)
+    # Get user
+    user = await db.users.find_one({"email": current_user["email"]})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     
-    # Convert ObjectId to string
+    # Get integrations
+    integrations = await db.integrations.find({"user_id": str(user["_id"])}).to_list(100)
+    
+    result = []
     for integration in integrations:
-        integration["id"] = str(integration["_id"])
-        del integration["_id"]
+        result.append({
+            "id": str(integration["_id"]),
+            "platform": integration["platform"],
+            "is_active": integration.get("is_active", True),
+            "created_at": integration.get("created_at", datetime.utcnow()),
+            "last_sync": integration.get("last_sync")
+        })
     
-    return integrations
+    return result
 
 @router.post("/", response_model=dict)
 async def create_integration(
     integration: IntegrationCreate,
-    current_user: str = Depends(verify_token)
+    current_user: dict = Depends(get_current_user)
 ):
-    integrations_collection = await get_collection("integrations")
+    """Create new integration"""
+    db = get_database()
+    
+    # Get user
+    user = await db.users.find_one({"email": current_user["email"]})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     
     # Check if integration already exists
-    existing = await integrations_collection.find_one({
-        "user_email": current_user,
+    existing = await db.integrations.find_one({
+        "user_id": str(user["_id"]),
         "platform": integration.platform
     })
     
     if existing:
-        raise HTTPException(status_code=400, detail="Integration already exists")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Integration with {integration.platform} already exists"
+        )
     
-    integration_dict = integration.dict()
-    integration_dict["user_email"] = current_user
-    integration_dict["is_connected"] = True
+    # Create integration
+    integration_data = {
+        "user_id": str(user["_id"]),
+        "platform": integration.platform,
+        "credentials": integration.credentials,
+        "is_active": True,
+        "created_at": datetime.utcnow(),
+        "last_sync": None
+    }
     
-    result = await integrations_collection.insert_one(integration_dict)
+    result = await db.integrations.insert_one(integration_data)
     
-    return {"message": "Integration created successfully", "id": str(result.inserted_id)}
+    return {
+        "message": f"{integration.platform} integration created successfully",
+        "integration_id": str(result.inserted_id)
+    }
 
-@router.put("/{integration_id}", response_model=dict)
-async def update_integration(
+@router.post("/{integration_id}/sync")
+async def sync_integration(
     integration_id: str,
-    integration: IntegrationUpdate,
-    current_user: str = Depends(verify_token)
+    current_user: dict = Depends(get_current_user)
 ):
-    integrations_collection = await get_collection("integrations")
+    """Sync data from integration"""
+    db = get_database()
     
-    update_data = {k: v for k, v in integration.dict().items() if v is not None}
+    # Get user
+    user = await db.users.find_one({"email": current_user["email"]})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     
-    result = await integrations_collection.update_one(
-        {"_id": ObjectId(integration_id), "user_email": current_user},
-        {"$set": update_data}
-    )
+    # Get integration
+    try:
+        integration = await db.integrations.find_one({
+            "_id": ObjectId(integration_id),
+            "user_id": str(user["_id"])
+        })
+    except:
+        raise HTTPException(status_code=400, detail="Invalid integration ID")
     
-    if result.matched_count == 0:
+    if not integration:
         raise HTTPException(status_code=404, detail="Integration not found")
     
-    return {"message": "Integration updated successfully"}
+    # Update last sync time
+    await db.integrations.update_one(
+        {"_id": ObjectId(integration_id)},
+        {"$set": {"last_sync": datetime.utcnow()}}
+    )
+    
+    return {
+        "message": f"{integration['platform']} data synced successfully",
+        "synced_at": datetime.utcnow().isoformat()
+    }
 
-@router.delete("/{integration_id}", response_model=dict)
+@router.delete("/{integration_id}")
 async def delete_integration(
     integration_id: str,
-    current_user: str = Depends(verify_token)
+    current_user: dict = Depends(get_current_user)
 ):
-    integrations_collection = await get_collection("integrations")
+    """Delete integration"""
+    db = get_database()
     
-    result = await integrations_collection.delete_one(
-        {"_id": ObjectId(integration_id), "user_email": current_user}
-    )
+    # Get user
+    user = await db.users.find_one({"email": current_user["email"]})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Delete integration
+    try:
+        result = await db.integrations.delete_one({
+            "_id": ObjectId(integration_id),
+            "user_id": str(user["_id"])
+        })
+    except:
+        raise HTTPException(status_code=400, detail="Invalid integration ID")
     
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Integration not found")
     
     return {"message": "Integration deleted successfully"}
 
-@router.post("/{integration_id}/sync", response_model=dict)
-async def sync_integration(
-    integration_id: str,
-    current_user: str = Depends(verify_token)
-):
-    integrations_collection = await get_collection("integrations")
-    
-    integration = await integrations_collection.find_one(
-        {"_id": ObjectId(integration_id), "user_email": current_user}
-    )
-    
-    if not integration:
-        raise HTTPException(status_code=404, detail="Integration not found")
-    
-    # Mock sync process
-    await integrations_collection.update_one(
-        {"_id": ObjectId(integration_id)},
-        {"$set": {"last_sync": datetime.utcnow()}}
-    )
-    
-    return {"message": "Sync completed successfully"}
-
-@router.get("/platforms/metrics", response_model=List[PlatformMetrics])
-async def get_platform_metrics(current_user: str = Depends(verify_token)):
-    # Mock platform metrics
-    platforms = [
-        PlatformMetrics(
-            platform="shopify",
-            revenue=75000.0,
-            orders=750,
-            aov=100.0,
-            roas=4.5,
-            spend=16666.67
-        ),
-        PlatformMetrics(
-            platform="facebook",
-            revenue=35000.0,
-            orders=350,
-            aov=100.0,
-            roas=3.8,
-            spend=9210.53
-        ),
-        PlatformMetrics(
-            platform="google",
-            revenue=15000.0,
-            orders=150,
-            aov=100.0,
-            roas=5.2,
-            spend=2884.62
-        )
-    ]
-    
-    return platforms
+@router.get("/available")
+async def get_available_integrations():
+    """Get list of available integrations"""
+    return {
+        "integrations": [
+            {
+                "platform": "shopify",
+                "name": "Shopify",
+                "description": "Connect your Shopify store for sales and inventory data",
+                "fields": [
+                    {"name": "shop_url", "label": "Shop URL", "type": "text", "required": True},
+                    {"name": "access_token", "label": "Access Token", "type": "password", "required": True}
+                ]
+            },
+            {
+                "platform": "facebook_ads",
+                "name": "Facebook Ads",
+                "description": "Connect Facebook Ads for advertising performance data",
+                "fields": [
+                    {"name": "access_token", "label": "Access Token", "type": "password", "required": True},
+                    {"name": "ad_account_id", "label": "Ad Account ID", "type": "text", "required": True}
+                ]
+            },
+            {
+                "platform": "google_ads",
+                "name": "Google Ads",
+                "description": "Connect Google Ads for search advertising data",
+                "fields": [
+                    {"name": "customer_id", "label": "Customer ID", "type": "text", "required": True},
+                    {"name": "developer_token", "label": "Developer Token", "type": "password", "required": True}
+                ]
+            },
+            {
+                "platform": "shiprocket",
+                "name": "Shiprocket",
+                "description": "Connect Shiprocket for shipping and logistics data",
+                "fields": [
+                    {"name": "email", "label": "Email", "type": "email", "required": True},
+                    {"name": "password", "label": "Password", "type": "password", "required": True}
+                ]
+            }
+        ]
+    }

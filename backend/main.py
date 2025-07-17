@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
@@ -42,11 +42,11 @@ app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"]
 
 @app.get("/")
 async def root():
-    return {"message": "D2C Analytics API is running!"}
+    return {"message": "D2C Analytics API is running!", "version": "1.0.0"}
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "message": "API is operational"}
 
 if __name__ == "__main__":
     import uvicorn

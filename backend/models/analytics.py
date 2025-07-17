@@ -15,22 +15,21 @@ class PyObjectId(ObjectId):
         return ObjectId(v)
 
     @classmethod
-    def __modify_schema__(cls, field_schema):
+    def __get_pydantic_json_schema__(cls, field_schema):
         field_schema.update(type="string")
 
 class MetricData(BaseModel):
     date: datetime
     value: float
     platform: str
-    metric_type: str
 
 class DashboardMetrics(BaseModel):
     total_revenue: float
     total_orders: int
-    average_order_value: float
+    avg_order_value: float
     conversion_rate: float
-    return_on_ad_spend: float
-    customer_acquisition_cost: float
+    roas: float
+    acos: float
 
 class ChartData(BaseModel):
     labels: List[str]
@@ -40,7 +39,6 @@ class PlatformMetrics(BaseModel):
     platform: str
     revenue: float
     orders: int
-    aov: float
     roas: float
     spend: float
 
@@ -48,12 +46,10 @@ class Integration(BaseModel):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
     user_id: str
     platform: str
-    platform_name: str
-    is_connected: bool = False
-    credentials: Dict[str, Any] = {}
-    last_sync: Optional[datetime] = None
+    credentials: Dict[str, Any]
+    is_active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    last_sync: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
@@ -64,6 +60,9 @@ class IntegrationCreate(BaseModel):
     platform: str
     credentials: Dict[str, Any]
 
-class IntegrationUpdate(BaseModel):
-    credentials: Optional[Dict[str, Any]] = None
-    is_connected: Optional[bool] = None
+class IntegrationResponse(BaseModel):
+    id: str
+    platform: str
+    is_active: bool
+    created_at: datetime
+    last_sync: Optional[datetime] = None

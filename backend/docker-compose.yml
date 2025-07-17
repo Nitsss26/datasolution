@@ -9,7 +9,6 @@ services:
       - MONGODB_URL=mongodb://mongo:27017
       - DATABASE_NAME=d2c_analytics
       - SECRET_KEY=your-secret-key-change-in-production
-      - REDIS_URL=redis://redis:6379
     depends_on:
       - mongo
       - redis
@@ -32,19 +31,6 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-
-  worker:
-    build: .
-    environment:
-      - MONGODB_URL=mongodb://mongo:27017
-      - DATABASE_NAME=d2c_analytics
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      - mongo
-      - redis
-    volumes:
-      - .:/app
-    command: python -c "print('Celery worker would run here')"
 
 volumes:
   mongo_data:
