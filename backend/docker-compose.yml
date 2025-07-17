@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://mongo:27017
+      - DATABASE_NAME=d2c_analytics
+      - SECRET_KEY=your-secret-key-here
+      - GOOGLE_CLOUD_PROJECT=your-project-id
+    depends_on:
+      - mongo
+      - redis
+    volumes:
+      - .:/app
+    networks:
+      - app-network
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+
+volumes:
+  mongo_data:
+
+networks:
+  app-network:
+    driver: bridge
