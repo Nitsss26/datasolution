@@ -14,21 +14,63 @@ class BigQueryClient:
     def __init__(self, project_id: str = None, credentials_path: str = None):
         self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT_ID")
         self.dataset_id = os.getenv("BIGQUERY_DATASET_ID", "d2c_analytics")
+        self.client = None
+        self.is_connected_flag = False
         
-        # Initialize credentials
-        if credentials_path and os.path.exists(credentials_path):
-            credentials = service_account.Credentials.from_service_account_file(credentials_path)
-            self.client = bigquery.Client(credentials=credentials, project=self.project_id)
-        elif os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
-            credentials_info = json.loads(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"))
-            credentials = service_account.Credentials.from_service_account_info(credentials_info)
-            self.client = bigquery.Client(credentials=credentials, project=self.project_id)
-        else:
-            # Use default credentials
-            self.client = bigquery.Client(project=self.project_id)
+        # Skip BigQuery initialization if no project ID is provided (demo mode)
+        if not self.project_id:
+            logger.info("🔄 Running in demo mode - BigQuery disabled (no project ID)")
+            return
+        
+        # Check if we have any credentials available before attempting connection
+        has_credentials = (
+            (credentials_path and os.path.exists(credentials_path)) or
+            os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON") or
+            os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or
+            self._check_default_credentials()
+        )
+        
+        if not has_credentials:
+            logger.info("🔄 Running in demo mode - BigQuery disabled (no credentials found)")
+            return
+        
+        try:
+            # Initialize credentials
+            if credentials_path and os.path.exists(credentials_path):
+                credentials = service_account.Credentials.from_service_account_file(credentials_path)
+                self.client = bigquery.Client(credentials=credentials, project=self.project_id)
+            elif os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
+                credentials_info = json.loads(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"))
+                credentials = service_account.Credentials.from_service_account_info(credentials_info)
+                self.client = bigquery.Client(credentials=credentials, project=self.project_id)
+            else:
+                # Use default credentials
+                self.client = bigquery.Client(project=self.project_id)
+            
+            self.is_connected_flag = True
+            logger.info(f"✅ Connected to BigQuery project: {self.project_id}")
+            
+        except Exception as e:
+            logger.warning(f"⚠️ BigQuery connection failed, running in demo mode: {e}")
+            self.client = None
+            self.is_connected_flag = False
+    
+    def _check_default_credentials(self) -> bool:
+        """Check if default credentials are available without triggering authentication"""
+        try:
+            import google.auth
+            # Try to get default credentials without actually using them
+            credentials, project = google.auth.default()
+            return credentials is not None
+        except Exception:
+            return False
     
     async def init_tables(self):
         """Initialize all required BigQuery tables"""
+        if not self.client:
+            logger.info("🔄 Skipping table initialization - running in demo mode")
+            return
+            
         try:
             # Create dataset if not exists
             await self.create_dataset()
@@ -188,6 +230,9 @@ class BigQueryClient:
     
     async def create_dataset(self):
         """Create BigQuery dataset if it doesn't exist"""
+        if not self.client:
+            return
+            
         try:
             dataset_ref = self.client.dataset(self.dataset_id)
             dataset = bigquery.Dataset(dataset_ref)
@@ -203,6 +248,9 @@ class BigQueryClient:
     
     async def create_table(self, table_name: str, schema: List[bigquery.SchemaField]):
         """Create BigQuery table if it doesn't exist"""
+        if not self.client:
+            return
+            
         try:
             table_ref = self.client.dataset(self.dataset_id).table(table_name)
             table = bigquery.Table(table_ref, schema=schema)
@@ -222,6 +270,10 @@ class BigQueryClient:
     
     async def insert_data(self, table_name: str, data: List[Dict[str, Any]]):
         """Insert data into BigQuery table"""
+        if not self.client:
+            logger.info(f"🔄 Skipping data insertion to {table_name} - running in demo mode")
+            return
+            
         try:
             if not data:
                 return
@@ -247,6 +299,10 @@ class BigQueryClient:
     
     async def execute_query(self, query: str) -> List[Dict[str, Any]]:
         """Execute BigQuery SQL query"""
+        if not self.client:
+            logger.info("🔄 Skipping query execution - running in demo mode")
+            return []
+            
         try:
             query_job = self.client.query(query)
             results = query_job.result()
@@ -264,6 +320,10 @@ class BigQueryClient:
     
     async def get_analytics_summary(self, platforms: List[str], date_range: Dict[str, str]) -> Dict[str, Any]:
         """Get comprehensive analytics summary"""
+        if not self.client:
+            logger.info("🔄 Returning empty analytics summary - running in demo mode")
+            return []
+            
         try:
             platform_filter = ""
             if platforms and "all" not in platforms:
@@ -315,6 +375,9 @@ class BigQueryClient:
     
     async def test_connection(self) -> Dict[str, Any]:
         """Test BigQuery connection"""
+        if not self.client:
+            return {"success": False, "error": "BigQuery client not initialized - running in demo mode"}
+            
         try:
             # Simple query to test connection
             query = f"SELECT 1 as test_value"
