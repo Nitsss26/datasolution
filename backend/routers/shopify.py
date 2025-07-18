@@ -4,13 +4,19 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 
-from ..integrations.shopify_client import ShopifyClient
-from ..database import log_sync_operation, update_platform_sync_time
+from database import log_sync_operation, update_platform_sync_time
+from integrations.shopify_client import ShopifyClient
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-shopify_client = ShopifyClient()
+
+# Initialize with environment variables or default values
+import os
+shopify_client = ShopifyClient(
+    shop_domain=os.getenv("SHOPIFY_SHOP_DOMAIN", "demo-shop"),
+    access_token=os.getenv("SHOPIFY_ACCESS_TOKEN", "demo-token")
+)
 
 class SyncRequest(BaseModel):
     force_refresh: bool = False

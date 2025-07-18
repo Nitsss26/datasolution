@@ -4,13 +4,19 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 
-from ..integrations.facebook_client import FacebookClient
-from ..database import log_sync_operation, update_platform_sync_time
+from integrations.facebook_client import FacebookClient
+from database import log_sync_operation, update_platform_sync_time
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-facebook_client = FacebookClient()
+
+# Initialize with environment variables or default values
+import os
+facebook_client = FacebookClient(
+    access_token=os.getenv("FACEBOOK_ACCESS_TOKEN", "demo-token"),
+    ad_account_id=os.getenv("FACEBOOK_AD_ACCOUNT_ID", "demo-account")
+)
 
 class SyncRequest(BaseModel):
     force_refresh: bool = False

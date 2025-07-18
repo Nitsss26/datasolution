@@ -1,1 +1,1 @@
-# Backend routers package
+# Routers package for D2C Analytics Platform

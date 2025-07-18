@@ -61,6 +61,7 @@ black==23.11.0
 flake8==6.1.0
 
 # Platform-specific clients
-shopify-python-api==12.0.0
-facebook-business==18.0.2
-google-ads==22.1.0
+# Note: Install these manually if needed for specific integrations
+# shopify-python-api (use requests for Shopify REST API)
+# facebook-business==18.0.2 (for Meta Ads API)
+# google-ads==22.1.0 (for Google Ads API)

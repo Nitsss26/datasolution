@@ -4,13 +4,22 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 
-from ..integrations.google_ads_client import GoogleAdsClient
-from ..database import log_sync_operation, update_platform_sync_time
+from integrations.google_ads_client import GoogleAdsClient
+from database import log_sync_operation, update_platform_sync_time
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-google_ads_client = GoogleAdsClient()
+
+# Initialize with environment variables or default values
+import os
+google_ads_client = GoogleAdsClient(
+    developer_token=os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN", "demo-token"),
+    client_id=os.getenv("GOOGLE_ADS_CLIENT_ID", "demo-client-id"),
+    client_secret=os.getenv("GOOGLE_ADS_CLIENT_SECRET", "demo-client-secret"),
+    refresh_token=os.getenv("GOOGLE_ADS_REFRESH_TOKEN", "demo-refresh-token"),
+    customer_id=os.getenv("GOOGLE_ADS_CUSTOMER_ID", "demo-customer")
+)
 
 class SyncRequest(BaseModel):
     force_refresh: bool = False

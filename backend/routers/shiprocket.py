@@ -4,13 +4,20 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 
-from ..integrations.shiprocket_client import ShiprocketClient
-from ..database import log_sync_operation, update_platform_sync_time
+from integrations.shiprocket_client import ShiprocketClient
+from database import log_sync_operation, update_platform_sync_time
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-shiprocket_client = ShiprocketClient()
+
+# Initialize with environment variables or default values
+import os
+shiprocket_client = ShiprocketClient(
+    api_key=os.getenv("SHIPROCKET_API_KEY", "demo-key"),
+    email=os.getenv("SHIPROCKET_EMAIL", "demo@example.com"),
+    password=os.getenv("SHIPROCKET_PASSWORD", "demo-password")
+)
 
 class SyncRequest(BaseModel):
     force_refresh: bool = False
