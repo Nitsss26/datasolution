@@ -1,21 +1,7 @@
 version: '3.8'
 
 services:
-  api:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - MONGODB_URL=mongodb://mongo:27017
-      - DATABASE_NAME=d2c_analytics
-      - SECRET_KEY=your-secret-key-change-in-production
-    depends_on:
-      - mongo
-      - redis
-    volumes:
-      - .:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-
+  # MongoDB Database
   mongo:
     image: mongo:7.0
     ports:
@@ -24,13 +10,44 @@ services:
       - mongo_data:/data/db
     environment:
       - MONGO_INITDB_DATABASE=d2c_analytics
+    restart: unless-stopped
 
+  # MongoDB Web Portal
+  mongo-express:
+    image: mongo-express:1.0.2
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongo
+      - ME_CONFIG_MONGODB_PORT=27017
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=admin123
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  # Redis Cache
   redis:
     image: redis:7.2-alpine
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # Redis Web Portal
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    ports:
+      - "8082:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+      - HTTP_USER=admin
+      - HTTP_PASSWORD=admin123
+    depends_on:
+      - redis
+    restart: unless-stopped
 
 volumes:
   mongo_data:

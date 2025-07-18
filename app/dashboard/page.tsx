@@ -1,394 +1,561 @@
-"use client"
+'use client'
 
-import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
+import { useState, useEffect } from 'react'
+import { AppHeader } from '@/components/navigation'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { 
+  TrendingUp, 
+  TrendingDown, 
+  DollarSign, 
+  Users, 
+  ShoppingCart, 
+  Truck,
+  BarChart3,
   PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-} from "recharts"
-import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Target, Download, RefreshCw } from "lucide-react"
+  LineChart,
+  Settings,
+  Download,
+  Sparkles,
+  RefreshCw,
+  Filter,
+  Calendar,
+  Eye,
+  EyeOff,
+  Moon,
+  Sun,
+  Palette,
+  Grid3X3,
+  Maximize2,
+  Plus
+} from 'lucide-react'
+import { MetricsCards } from '@/components/dashboard/metrics-cards'
+import { CustomChart } from '@/components/dashboard/custom-chart'
+import { PlatformSelector } from '@/components/dashboard/platform-selector'
+import { AIAssistant } from '@/components/dashboard/ai-assistant'
+import { PLReport } from '@/components/dashboard/pl-report'
+import { ChartCustomizer } from '@/components/dashboard/chart-customizer'
+import { ExhaustiveMetricsGrid } from '@/components/dashboard/exhaustive-metrics-grid'
+import { DragDropDashboard } from '@/components/dashboard/drag-drop-dashboard'
+import { ThemeCustomizer } from '@/components/dashboard/theme-customizer'
+import { useAnalytics } from '@/hooks/use-analytics'
+import { usePlatforms } from '@/hooks/use-platforms'
+import { useAI } from '@/hooks/use-ai'
+import { useTheme } from 'next-themes'
+import type { ChartConfig, UserPreferences } from '@/types/analytics'
 
-// Mock data for demonstration
-const mockMetrics = {
-  totalRevenue: { value: 245000, change: 12.5 },
-  totalOrders: { value: 1250, change: 8.3 },
-  averageOrderValue: { value: 196, change: -2.1 },
-  roas: { value: 4.2, change: 15.7 },
-}
+export default function Dashboard() {
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['all'])
+  const [timeRange, setTimeRange] = useState('30d')
+  const [activeTab, setActiveTab] = useState('overview')
+  const [showAI, setShowAI] = useState(true)
+  const [customCharts, setCustomCharts] = useState<ChartConfig[]>([])
+  const [isDragMode, setIsDragMode] = useState(false)
+  const [showThemeCustomizer, setShowThemeCustomizer] = useState(false)
+  const [demoMode, setDemoMode] = useState(true)
+  const [pipelineStatus, setPipelineStatus] = useState<any>(null)
+  const [userPrefs, setUserPrefs] = useState<UserPreferences>({
+    selectedPlatforms: ['all'],
+    defaultTimeRange: '30d',
+    favoriteCharts: [],
+    theme: 'system',
+    aiEnabled: true
+  })
 
-const revenueData = [
-  { date: "2024-01-01", revenue: 12000, orders: 65 },
-  { date: "2024-01-02", revenue: 15000, orders: 78 },
-  { date: "2024-01-03", revenue: 18000, orders: 92 },
-  { date: "2024-01-04", revenue: 14000, orders: 71 },
-  { date: "2024-01-05", revenue: 22000, orders: 115 },
-  { date: "2024-01-06", revenue: 19000, orders: 98 },
-  { date: "2024-01-07", revenue: 25000, orders: 128 },
-]
+  const { theme, setTheme } = useTheme()
+  const { data: analyticsData, isLoading, refetch } = useAnalytics({
+    platforms: selectedPlatforms,
+    timeRange,
+    demoMode
+  })
 
-const platformData = [
-  { name: "Shopify", revenue: 120000, color: "#8884d8" },
-  { name: "Amazon", revenue: 85000, color: "#82ca9d" },
-  { name: "Facebook Ads", revenue: 25000, color: "#ffc658" },
-  { name: "Google Ads", revenue: 15000, color: "#ff7300" },
-]
+  const { platforms } = usePlatforms()
+  const { askAI, isProcessing } = useAI()
 
-const adPerformanceData = [
-  { platform: "Facebook", spend: 15000, revenue: 63000, roas: 4.2 },
-  { platform: "Google", spend: 12000, revenue: 48000, roas: 4.0 },
-  { platform: "Instagram", spend: 8000, revenue: 28000, roas: 3.5 },
-]
+  // Fetch pipeline status
+  useEffect(() => {
+    const fetchPipelineStatus = async () => {
+      try {
+        const response = await fetch('/api/pipeline/status')
+        if (response.ok) {
+          const status = await response.json()
+          setPipelineStatus(status)
+        }
+      } catch (error) {
+        console.error('Failed to fetch pipeline status:', error)
+      }
+    }
 
-export default function DashboardPage() {
-  const [timeRange, setTimeRange] = useState("30d")
-  const [selectedPlatforms, setSelectedPlatforms] = useState("all")
-  const [isLoading, setIsLoading] = useState(false)
+    fetchPipelineStatus()
+    const interval = setInterval(fetchPipelineStatus, 30000) // Update every 30 seconds
 
-  const handleRefresh = async () => {
-    setIsLoading(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setIsLoading(false)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Handle demo mode change
+  useEffect(() => {
+    if (demoMode) {
+      // Switch to demo data
+      refetch()
+    } else {
+      // Switch to live data
+      refetch()
+    }
+  }, [demoMode, refetch])
+
+  const handlePlatformChange = (platforms: string[]) => {
+    setSelectedPlatforms(platforms)
+    setUserPrefs(prev => ({ ...prev, selectedPlatforms: platforms }))
+  }
+
+  const handleTimeRangeChange = (range: string) => {
+    setTimeRange(range)
+    setUserPrefs(prev => ({ ...prev, defaultTimeRange: range }))
+  }
+
+  const handleAddCustomChart = (config: ChartConfig) => {
+    setCustomCharts(prev => [...prev, config])
+  }
+
+  const handleExportPL = async () => {
+    if (!analyticsData) return
+    
+    const response = await fetch('/api/export/pl', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        data: analyticsData,
+        platforms: selectedPlatforms,
+        timeRange
+      })
+    })
+    
+    const blob = await response.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `pl-report-${new Date().toISOString().split('T')[0]}.pdf`
+    a.click()
+  }
+
+  const toggleTheme = () => {
+    setTheme(theme === 'dark' ? 'light' : 'dark')
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b">
-        <div className="container mx-auto px-6 py-4">
+    <div className="min-h-screen bg-background transition-colors duration-300">
+      <AppHeader />
+      {/* Enhanced Header with Theme Controls */}
+      <div className="border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
+        <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-              <p className="text-gray-600">Welcome back! Here's your business overview.</p>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                D2C Analytics Pro
+              </h1>
+              <p className="text-muted-foreground">Complete business intelligence platform with AI-powered insights</p>
             </div>
-            <div className="flex items-center space-x-4">
-              <Select value={timeRange} onValueChange={setTimeRange}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7d">Last 7 days</SelectItem>
-                  <SelectItem value="15d">Last 15 days</SelectItem>
-                  <SelectItem value="30d">Last 30 days</SelectItem>
-                  <SelectItem value="90d">Last 90 days</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button onClick={handleRefresh} disabled={isLoading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+            <div className="flex items-center gap-2">
+              {/* Demo Mode Toggle */}
+              <div className="flex items-center gap-2 px-3 py-1 border rounded-lg bg-muted/50">
+                <Label htmlFor="demo-toggle" className="text-sm">Demo Mode</Label>
+                <Switch
+                  id="demo-toggle"
+                  checked={demoMode}
+                  onCheckedChange={setDemoMode}
+                />
+                <Badge variant={demoMode ? "secondary" : "default"} className="text-xs">
+                  {demoMode ? "Dummy Data" : "Live Data"}
+                </Badge>
+              </div>
+
+              {/* Pipeline Status */}
+              {pipelineStatus && (
+                <Badge 
+                  variant={pipelineStatus.status === 'running' ? "default" : "secondary"}
+                  className="animate-pulse"
+                >
+                  Pipeline: {pipelineStatus.status}
+                </Badge>
+              )}
+
+              {/* Theme Toggle */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleTheme}
+                className="relative"
+              >
+                <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+                <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+                <span className="sr-only">Toggle theme</span>
+              </Button>
+              
+              {/* Theme Customizer */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowThemeCustomizer(!showThemeCustomizer)}
+              >
+                <Palette className="h-4 w-4 mr-2" />
+                Customize
+              </Button>
+              
+              {/* Drag Mode Toggle */}
+              <Button
+                variant={isDragMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => setIsDragMode(!isDragMode)}
+              >
+                <Grid3X3 className="h-4 w-4 mr-2" />
+                {isDragMode ? 'Exit Edit' : 'Edit Layout'}
+              </Button>
+              
+              {/* Refresh */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                disabled={isLoading}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
-              <Button>
+              
+              {/* AI Toggle */}
+              <Button
+                variant={showAI ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowAI(!showAI)}
+              >
+                <Sparkles className="h-4 w-4 mr-2" />
+                AI Assistant
+              </Button>
+              
+              {/* Export P&L */}
+              <Button onClick={handleExportPL} size="sm">
                 <Download className="h-4 w-4 mr-2" />
-                Export
+                Export P&L
               </Button>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="container mx-auto px-6 py-8">
-        {/* Key Metrics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium opacity-90">Total Revenue</CardTitle>
-              <DollarSign className="h-4 w-4 opacity-90" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">₹{mockMetrics.totalRevenue.value.toLocaleString()}</div>
-              <div className="flex items-center text-xs opacity-90">
-                <TrendingUp className="h-3 w-3 mr-1" />+{mockMetrics.totalRevenue.change}% from last period
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-green-500 to-green-600 text-white">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium opacity-90">Total Orders</CardTitle>
-              <ShoppingCart className="h-4 w-4 opacity-90" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{mockMetrics.totalOrders.value.toLocaleString()}</div>
-              <div className="flex items-center text-xs opacity-90">
-                <TrendingUp className="h-3 w-3 mr-1" />+{mockMetrics.totalOrders.change}% from last period
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-purple-500 to-purple-600 text-white">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium opacity-90">Average Order Value</CardTitle>
-              <Target className="h-4 w-4 opacity-90" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">₹{mockMetrics.averageOrderValue.value}</div>
-              <div className="flex items-center text-xs opacity-90">
-                <TrendingDown className="h-3 w-3 mr-1" />
-                {mockMetrics.averageOrderValue.change}% from last period
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-orange-500 to-orange-600 text-white">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium opacity-90">ROAS</CardTitle>
-              <TrendingUp className="h-4 w-4 opacity-90" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{mockMetrics.roas.value}x</div>
-              <div className="flex items-center text-xs opacity-90">
-                <TrendingUp className="h-3 w-3 mr-1" />+{mockMetrics.roas.change}% from last period
-              </div>
-            </CardContent>
-          </Card>
+      {/* Theme Customizer Panel */}
+      {showThemeCustomizer && (
+        <div className="border-b bg-muted/50">
+          <div className="container mx-auto px-4 py-4">
+            <ThemeCustomizer onClose={() => setShowThemeCustomizer(false)} />
+          </div>
         </div>
+      )}
 
-        {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Revenue Trend Chart */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Revenue Trend</CardTitle>
-              <CardDescription>Daily revenue and order trends</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={revenueData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Area
-                    type="monotone"
-                    dataKey="revenue"
-                    stackId="1"
-                    stroke="#8884d8"
-                    fill="#8884d8"
-                    fillOpacity={0.6}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* Platform Revenue Distribution */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Revenue by Platform</CardTitle>
-              <CardDescription>Revenue distribution across platforms</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={platformData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="revenue"
-                  >
-                    {platformData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Detailed Analytics Tabs */}
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="advertising">Advertising</TabsTrigger>
-            <TabsTrigger value="platforms">Platforms</TabsTrigger>
-            <TabsTrigger value="customers">Customers</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Orders vs Revenue</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={revenueData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis yAxisId="left" />
-                      <YAxis yAxisId="right" orientation="right" />
-                      <Tooltip />
-                      <Legend />
-                      <Bar yAxisId="left" dataKey="orders" fill="#8884d8" />
-                      <Line yAxisId="right" type="monotone" dataKey="revenue" stroke="#82ca9d" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Top Performing Products</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {[
-                      { name: "Premium T-Shirt", revenue: 45000, orders: 230 },
-                      { name: "Wireless Headphones", revenue: 38000, orders: 152 },
-                      { name: "Smart Watch", revenue: 32000, orders: 89 },
-                      { name: "Running Shoes", revenue: 28000, orders: 140 },
-                    ].map((product, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div>
-                          <p className="font-medium">{product.name}</p>
-                          <p className="text-sm text-gray-600">{product.orders} orders</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold">₹{product.revenue.toLocaleString()}</p>
-                        </div>
-                      </div>
+      <div className="container mx-auto px-4 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Main Content */}
+          <div className="lg:col-span-3 space-y-6">
+            {/* Enhanced Platform & Time Controls */}
+            <Card className="border-2 border-dashed border-muted-foreground/25 hover:border-primary/50 transition-colors">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Filter className="h-5 w-5 text-primary" />
+                    Advanced Data Filters
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    {platforms.map(platform => (
+                      <Badge 
+                        key={platform.id}
+                        variant={platform.connected ? "default" : "secondary"}
+                        className="animate-pulse"
+                      >
+                        {platform.name}
+                        {platform.connected && (
+                          <div className="ml-1 h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+                        )}
+                      </Badge>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="advertising" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Ad Performance by Platform</CardTitle>
-                <CardDescription>Compare advertising performance across platforms</CardDescription>
+                </div>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={adPerformanceData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="platform" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="spend" fill="#8884d8" name="Ad Spend" />
-                    <Bar dataKey="revenue" fill="#82ca9d" name="Revenue" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label>Select Platforms</Label>
+                    <PlatformSelector
+                      platforms={platforms}
+                      selected={selectedPlatforms}
+                      onChange={handlePlatformChange}
+                    />
+                  </div>
+                  <div>
+                    <Label>Time Range</Label>
+                    <Select value={timeRange} onValueChange={handleTimeRangeChange}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1d">Last 24 hours</SelectItem>
+                        <SelectItem value="7d">Last 7 days</SelectItem>
+                        <SelectItem value="30d">Last 30 days</SelectItem>
+                        <SelectItem value="90d">Last 90 days</SelectItem>
+                        <SelectItem value="6m">Last 6 months</SelectItem>
+                        <SelectItem value="1y">Last year</SelectItem>
+                        <SelectItem value="custom">Custom range</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Data Granularity</Label>
+                    <Select defaultValue="daily">
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="hourly">Hourly</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {adPerformanceData.map((platform, index) => (
-                <Card key={index}>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{platform.platform}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Spend:</span>
-                        <span className="font-medium">₹{platform.spend.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Revenue:</span>
-                        <span className="font-medium">₹{platform.revenue.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">ROAS:</span>
-                        <Badge variant={platform.roas >= 4 ? "default" : "secondary"}>{platform.roas}x</Badge>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </TabsContent>
+            {/* Enhanced Dashboard Tabs */}
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+              <TabsList className="grid w-full grid-cols-6 h-12">
+                <TabsTrigger value="overview" className="text-sm">Overview</TabsTrigger>
+                <TabsTrigger value="exhaustive" className="text-sm">All Metrics</TabsTrigger>
+                <TabsTrigger value="revenue" className="text-sm">Revenue</TabsTrigger>
+                <TabsTrigger value="marketing" className="text-sm">Marketing</TabsTrigger>
+                <TabsTrigger value="operations" className="text-sm">Operations</TabsTrigger>
+                <TabsTrigger value="custom" className="text-sm">Custom</TabsTrigger>
+              </TabsList>
 
-          <TabsContent value="platforms" className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {platformData.map((platform, index) => (
-                <Card key={index}>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{platform.name}</CardTitle>
-                    <Badge variant="outline">Connected</Badge>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold mb-2">₹{platform.revenue.toLocaleString()}</div>
-                    <p className="text-sm text-gray-600">Total Revenue</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </TabsContent>
+              <TabsContent value="overview" className="space-y-6">
+                {isDragMode ? (
+                  <DragDropDashboard 
+                    data={analyticsData} 
+                    isLoading={isLoading}
+                    onSaveLayout={(layout) => console.log('Layout saved:', layout)}
+                  />
+                ) : (
+                  <>
+                    <MetricsCards data={analyticsData} isLoading={isLoading} />
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <CustomChart
+                        type="line"
+                        title="Revenue Trend Analysis"
+                        data={analyticsData?.timeSeriesData}
+                        metric="totalRevenue"
+                        isLoading={isLoading}
+                        customizable={true}
+                      />
+                      <CustomChart
+                        type="bar"
+                        title="Platform Performance Comparison"
+                        data={analyticsData?.platformBreakdown}
+                        metric="revenue"
+                        isLoading={isLoading}
+                        customizable={true}
+                      />
+                    </div>
 
-          <TabsContent value="customers" className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Customer Acquisition</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span>New Customers</span>
-                      <span className="font-bold">1,234</span>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <CustomChart
+                        type="pie"
+                        title="Revenue Distribution by Channel"
+                        data={analyticsData?.d2cMetrics?.revenuePerChannel}
+                        isLoading={isLoading}
+                        customizable={true}
+                      />
+                      <CustomChart
+                        type="gauge"
+                        title="Return on Ad Spend (ROAS)"
+                        data={analyticsData?.adMetrics?.returnOnAdSpend}
+                        isLoading={isLoading}
+                        customizable={true}
+                      />
+                      <CustomChart
+                        type="area"
+                        title="Customer Acquisition Growth"
+                        data={analyticsData?.timeSeriesData}
+                        metric="newCustomerCount"
+                        isLoading={isLoading}
+                        customizable={true}
+                      />
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span>Returning Customers</span>
-                      <span className="font-bold">856</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span>Customer Retention Rate</span>
-                      <Badge>68.5%</Badge>
-                    </div>
+                  </>
+                )}
+              </TabsContent>
+
+              <TabsContent value="exhaustive" className="space-y-6">
+                <ExhaustiveMetricsGrid 
+                  data={analyticsData} 
+                  isLoading={isLoading}
+                  platforms={selectedPlatforms}
+                  timeRange={timeRange}
+                />
+              </TabsContent>
+
+              <TabsContent value="revenue" className="space-y-6">
+                <PLReport 
+                  data={analyticsData} 
+                  platforms={selectedPlatforms}
+                  timeRange={timeRange}
+                />
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <CustomChart
+                    type="line"
+                    title="Revenue vs Costs Analysis"
+                    data={analyticsData?.timeSeriesData}
+                    metric="revenue"
+                    isLoading={isLoading}
+                    customizable={true}
+                  />
+                  <CustomChart
+                    type="bar"
+                    title="Profit Margin Trends"
+                    data={analyticsData?.timeSeriesData}
+                    metric="grossMargin"
+                    isLoading={isLoading}
+                    customizable={true}
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="marketing" className="space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <CustomChart
+                    type="funnel"
+                    title="Marketing Funnel Analysis"
+                    data={analyticsData?.adMetrics}
+                    isLoading={isLoading}
+                    customizable={true}
+                  />
+                  <CustomChart
+                    type="scatter"
+                    title="Ad Spend vs Revenue Correlation"
+                    data={analyticsData?.timeSeriesData}
+                    isLoading={isLoading}
+                    customizable={true}
+                  />
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <CustomChart
+                    type="gauge"
+                    title="Click-Through Rate (CTR)"
+                    data={analyticsData?.adMetrics?.clickThroughRate}
+                    isLoading={isLoading}
+                    customizable={true}
+                  />
+                  <CustomChart
+                    type="gauge"
+                    title="Conversion Rate"
+                    data={analyticsData?.adMetrics?.conversionRate}
+                    isLoading={isLoading}
+                    customizable={true}
+                  />
+                  <CustomChart
+                    type="gauge"
+                    title="Cost Per Acquisition (CPA)"
+                    data={analyticsData?.adMetrics?.costPerAction}
+                    isLoading={isLoading}
+                    customizable={true}
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="operations" className="space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <CustomChart
+                    type="heatmap"
+                    title="Delivery Performance Heatmap"
+                    data={analyticsData?.deliveryMetrics}
+                    isLoading={isLoading}
+                    customizable={true}
+                  />
+                  <CustomChart
+                    type="bar"
+                    title="Inventory Turnover Analysis"
+                    data={analyticsData?.d2cMetrics}
+                    metric="inventoryTurnover"
+                    isLoading={isLoading}
+                    customizable={true}
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="custom" className="space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-1">
+                    <ChartCustomizer onAddChart={handleAddCustomChart} />
                   </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Customer Lifetime Value</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold mb-2">₹2,450</div>
-                  <p className="text-sm text-gray-600 mb-4">Average CLV</p>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm">Average Order Value</span>
-                      <span className="text-sm font-medium">₹196</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Purchase Frequency</span>
-                      <span className="text-sm font-medium">2.3x/year</span>
-                    </div>
+                  <div className="lg:col-span-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Plus className="h-5 w-5" />
+                          Your Custom Charts
+                        </CardTitle>
+                        <CardDescription>
+                          Create unlimited custom visualizations with any combination of metrics
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {customCharts.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>No custom charts yet. Create your first chart using the customizer!</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-4">
+                            {customCharts.map((config, index) => (
+                              <div key={index} className="border rounded-lg p-4">
+                                <CustomChart
+                                  type={config.type}
+                                  title={`Custom Chart ${index + 1}`}
+                                  data={analyticsData}
+                                  metric={config.metric}
+                                  isLoading={isLoading}
+                                  customizable={true}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          {/* Enhanced AI Assistant Sidebar */}
+          {showAI && (
+            <div className="lg:col-span-1">
+              <AIAssistant 
+                data={analyticsData}
+                onQuery={askAI}
+                isProcessing={isProcessing}
+              />
             </div>
-          </TabsContent>
-        </Tabs>
+          )}
+        </div>
       </div>
     </div>
   )
