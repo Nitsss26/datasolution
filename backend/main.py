@@ -11,7 +11,7 @@ import uvicorn
 # Import our custom modules
 from database import get_database, init_database
 from models.analytics import AnalyticsData, PlatformData, UserPreferences
-from routers import shopify, facebook_ads, google_ads, shiprocket, analytics, ai_insights, integrations, demo_data, pipeline
+from routers import shopify, facebook_ads, google_ads, shiprocket, analytics, ai_insights, integrations, demo_data, pipeline, auth
 from utils.bigquery_client import BigQueryClient
 from utils.data_processor import DataProcessor
 from utils.scheduler import DataScheduler
@@ -25,7 +25,13 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Next.js dev servers
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://localhost:3001",
+        "http://82.29.164.244:3000",
+        "http://82.29.164.244:3001",
+        "*"  # Allow all origins for development
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -215,6 +221,7 @@ app.include_router(ai_insights.router, prefix="/api/ai", tags=["AI Insights"])
 app.include_router(integrations.router, prefix="/api/integrations", tags=["Integrations"])
 app.include_router(demo_data.router, prefix="/api/demo", tags=["Demo Data"])
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["Pipeline Control"])
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 
 # Helper functions
 async def check_shopify_connection() -> bool:
@@ -271,7 +278,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8001,
         reload=True,
         log_level="info"
     )

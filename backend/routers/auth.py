@@ -1,90 +1,122 @@
-from fastapi import APIRouter, HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from models.user import UserCreate, UserLogin, User, Token, UserInDB
-from utils.auth import verify_password, get_password_hash, create_access_token, verify_token
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+import bcrypt
+from datetime import datetime
+import secrets
 from database import get_database
-from datetime import timedelta
-import pymongo
 
 router = APIRouter()
-security = HTTPBearer()
 
-@router.post("/register", response_model=dict)
-async def register_user(user: UserCreate):
-    db = get_database()
-    
-    # Check if user already exists
-    existing_user = await db.users.find_one({"email": user.email})
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Hash password and create user
-    hashed_password = get_password_hash(user.password)
-    user_dict = user.dict()
-    del user_dict["password"]
-    user_dict["hashed_password"] = hashed_password
-    
-    # Insert user
-    result = await db.users.insert_one(user_dict)
-    
-    # Create access token
-    access_token_expires = timedelta(minutes=30)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
-    
-    return {
-        "message": "User registered successfully",
-        "access_token": access_token,
-        "token_type": "bearer"
-    }
+# Pydantic models
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    company_name: Optional[str] = None
 
-@router.post("/login", response_model=Token)
-async def login_user(user: UserLogin):
-    db = get_database()
-    
-    # Find user
-    db_user = await db.users.find_one({"email": user.email})
-    if not db_user or not verify_password(user.password, db_user["hashed_password"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Create access token
-    access_token_expires = timedelta(minutes=30)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
-    
-    return {"access_token": access_token, "token_type": "bearer"}
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
 
-@router.get("/me", response_model=dict)
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    db = get_database()
-    
-    email = verify_token(credentials.credentials)
-    if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    full_name: str
+    company_name: Optional[str] = None
+    created_at: datetime
+    is_active: bool = True
+
+@router.post("/register")
+async def register_user(user_data: UserRegister):
+    """Register a new user"""
+    try:
+        db = await get_database()
+        
+        # Check if user already exists
+        existing_user = await db.users.find_one({"email": user_data.email})
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        # Hash password
+        salt = bcrypt.gensalt()
+        hashed_password = bcrypt.hashpw(user_data.password.encode('utf-8'), salt)
+        
+        # Create user document
+        user_doc = {
+            "email": user_data.email,
+            "password": hashed_password.decode('utf-8'),
+            "full_name": user_data.full_name,
+            "company_name": user_data.company_name,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "is_active": True,
+            "api_key": secrets.token_urlsafe(32)
+        }
+        
+        # Insert user
+        result = await db.users.insert_one(user_doc)
+        
+        # Return success response
+        return {
+            "message": "User registered successfully",
+            "user_id": str(result.inserted_id),
+            "email": user_data.email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+
+@router.post("/login")
+async def login_user(user_data: UserLogin):
+    """Login user"""
+    try:
+        db = await get_database()
+        
+        # Find user
+        user = await db.users.find_one({"email": user_data.email})
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Check password
+        if not bcrypt.checkpw(user_data.password.encode('utf-8'), user["password"].encode('utf-8')):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Check if user is active
+        if not user.get("is_active", True):
+            raise HTTPException(status_code=401, detail="Account is disabled")
+        
+        # Update last login
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"last_login": datetime.utcnow()}}
         )
-    
-    user = await db.users.find_one({"email": email})
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    
-    return {
-        "email": user["email"],
-        "full_name": user["full_name"],
-        "company_name": user.get("company_name"),
-        "is_active": user["is_active"]
-    }
+        
+        # Return success response
+        return {
+            "message": "Login successful",
+            "user": {
+                "id": str(user["_id"]),
+                "email": user["email"],
+                "full_name": user["full_name"],
+                "company_name": user.get("company_name"),
+                "api_key": user["api_key"]
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
+
+@router.get("/profile")
+async def get_user_profile():
+    """Get user profile (placeholder - needs authentication middleware)"""
+    return {"message": "Profile endpoint - authentication needed"}
+
+@router.post("/logout")
+async def logout_user():
+    """Logout user"""
+    return {"message": "Logout successful"}

@@ -36,6 +36,7 @@ xlsxwriter==3.1.9
 # Authentication and Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
 python-dotenv==1.0.0
 
 # Background Tasks and Scheduling
