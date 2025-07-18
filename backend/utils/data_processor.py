@@ -5,11 +5,11 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 
-from .bigquery_client import BigQueryClient
-from ..integrations.shopify_client import ShopifyClient
-from ..integrations.facebook_client import FacebookClient
-from ..integrations.google_ads_client import GoogleAdsClient
-from ..integrations.shiprocket_client import ShiprocketClient
+from utils.bigquery_client import BigQueryClient
+from integrations.shopify_client import ShopifyClient
+from integrations.facebook_client import FacebookClient
+from integrations.google_ads_client import GoogleAdsClient
+from integrations.shiprocket_client import ShiprocketClient
 
 logger = logging.getLogger(__name__)
 

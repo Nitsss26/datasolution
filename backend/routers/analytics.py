@@ -4,9 +4,9 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import logging
 
-from ..utils.data_processor import DataProcessor
-from ..utils.bigquery_client import BigQueryClient
-from ..database import get_database
+from utils.data_processor import DataProcessor
+from utils.bigquery_client import BigQueryClient
+from database import get_database
 
 logger = logging.getLogger(__name__)
 

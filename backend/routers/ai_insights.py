@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 import logging
 
-from ..database import save_ai_query, get_recent_ai_queries
+from database import save_ai_query, get_recent_ai_queries
 
 logger = logging.getLogger(__name__)
 
