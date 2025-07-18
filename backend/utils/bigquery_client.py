@@ -393,6 +393,10 @@ class BigQueryClient:
     
     async def list_tables(self) -> List[str]:
         """List all tables in the dataset"""
+        if not self.client:
+            logger.info("🔄 Returning empty table list - running in demo mode")
+            return []
+            
         try:
             dataset_ref = self.client.dataset(self.dataset_id)
             tables = self.client.list_tables(dataset_ref)
@@ -404,6 +408,10 @@ class BigQueryClient:
     
     async def get_table_schema(self, table_name: str) -> List[Dict[str, str]]:
         """Get table schema"""
+        if not self.client:
+            logger.info(f"🔄 Returning empty schema for {table_name} - running in demo mode")
+            return []
+            
         try:
             table_ref = self.client.dataset(self.dataset_id).table(table_name)
             table = self.client.get_table(table_ref)
@@ -425,6 +433,10 @@ class BigQueryClient:
     
     async def get_table_row_count(self, table_name: str) -> int:
         """Get table row count"""
+        if not self.client:
+            logger.info(f"🔄 Returning 0 row count for {table_name} - running in demo mode")
+            return 0
+            
         try:
             query = f"SELECT COUNT(*) as count FROM `{self.project_id}.{self.dataset_id}.{table_name}`"
             result = await self.execute_query(query)
@@ -436,6 +448,10 @@ class BigQueryClient:
     
     async def get_table_last_modified(self, table_name: str) -> str:
         """Get table last modified timestamp"""
+        if not self.client:
+            logger.info(f"🔄 Returning empty last modified for {table_name} - running in demo mode")
+            return ""
+            
         try:
             table_ref = self.client.dataset(self.dataset_id).table(table_name)
             table = self.client.get_table(table_ref)
@@ -447,6 +463,9 @@ class BigQueryClient:
     
     def is_connected(self) -> bool:
         """Check if BigQuery client is connected"""
+        if not self.client:
+            return False
+            
         try:
             # Simple test query
             query = "SELECT 1"
