@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import json
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
@@ -9,16 +10,29 @@ from utils.bigquery_client import BigQueryClient
 logger = logging.getLogger(__name__)
 
 class GoogleAdsClient:
-    def __init__(self, developer_token: str, client_id: str, client_secret: str, 
-                 refresh_token: str, customer_id: str, api_version: str = "v14"):
-        self.developer_token = developer_token
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.refresh_token = refresh_token
-        self.customer_id = customer_id.replace('-', '')
+    def __init__(self, developer_token: str = None, client_id: str = None, client_secret: str = None, 
+                 refresh_token: str = None, customer_id: str = None, api_version: str = "v14"):
+        # Get credentials from environment if not provided
+        self.developer_token = developer_token or os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN")
+        self.client_id = client_id or os.getenv("GOOGLE_ADS_CLIENT_ID")
+        self.client_secret = client_secret or os.getenv("GOOGLE_ADS_CLIENT_SECRET")
+        self.refresh_token = refresh_token or os.getenv("GOOGLE_ADS_REFRESH_TOKEN")
+        self.customer_id = customer_id or os.getenv("GOOGLE_ADS_CUSTOMER_ID")
         self.api_version = api_version
-        self.base_url = f"https://googleads.googleapis.com/{api_version}"
-        self.access_token = None
+        
+        # Check if we have required credentials
+        if not all([self.developer_token, self.client_id, self.client_secret, self.refresh_token, self.customer_id]):
+            logger.info("🔄 Running in demo mode - Google Ads credentials not found")
+            self.is_connected = False
+            self.base_url = None
+            self.access_token = None
+        else:
+            self.customer_id = self.customer_id.replace('-', '')
+            self.base_url = f"https://googleads.googleapis.com/{api_version}"
+            self.access_token = None
+            self.is_connected = True
+            logger.info(f"✅ Google Ads client initialized for customer: {self.customer_id}")
+        
         self.bigquery_client = BigQueryClient()
     
     async def _get_access_token(self) -> str:
@@ -51,6 +65,9 @@ class GoogleAdsClient:
     
     async def test_connection(self) -> Dict[str, Any]:
         """Test Google Ads API connection"""
+        if not self.is_connected:
+            return {"success": False, "error": "Google Ads client not initialized - running in demo mode"}
+            
         try:
             access_token = await self._get_access_token()
             
@@ -94,6 +111,10 @@ class GoogleAdsClient:
     
     async def get_campaigns(self, limit: int = 100, date_range: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         """Get campaigns from Google Ads"""
+        if not self.is_connected:
+            logger.info("🔄 Skipping Google Ads campaigns fetch - running in demo mode")
+            return []
+            
         try:
             access_token = await self._get_access_token()
             

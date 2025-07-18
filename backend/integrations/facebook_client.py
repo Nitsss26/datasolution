@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import json
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
@@ -9,15 +10,30 @@ from utils.bigquery_client import BigQueryClient
 logger = logging.getLogger(__name__)
 
 class FacebookClient:
-    def __init__(self, access_token: str, ad_account_id: str, api_version: str = "v18.0"):
-        self.access_token = access_token
-        self.ad_account_id = ad_account_id.replace('act_', '')
+    def __init__(self, access_token: str = None, ad_account_id: str = None, api_version: str = "v18.0"):
+        # Get credentials from environment if not provided
+        self.access_token = access_token or os.getenv("FACEBOOK_ACCESS_TOKEN")
+        self.ad_account_id = ad_account_id or os.getenv("FACEBOOK_AD_ACCOUNT_ID")
         self.api_version = api_version
-        self.base_url = f"https://graph.facebook.com/{api_version}"
+        
+        # Check if we have required credentials
+        if not self.access_token or not self.ad_account_id:
+            logger.info("🔄 Running in demo mode - Facebook credentials not found")
+            self.is_connected = False
+            self.base_url = None
+        else:
+            self.ad_account_id = self.ad_account_id.replace('act_', '')
+            self.base_url = f"https://graph.facebook.com/{api_version}"
+            self.is_connected = True
+            logger.info(f"✅ Facebook client initialized for account: {self.ad_account_id}")
+        
         self.bigquery_client = BigQueryClient()
     
     async def test_connection(self) -> Dict[str, Any]:
         """Test Facebook Ads API connection"""
+        if not self.is_connected:
+            return {"success": False, "error": "Facebook client not initialized - running in demo mode"}
+            
         try:
             params = {
                 "access_token": self.access_token,
@@ -50,6 +66,10 @@ class FacebookClient:
     
     async def get_campaigns(self, limit: int = 100, date_range: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         """Get campaigns from Facebook Ads"""
+        if not self.is_connected:
+            logger.info("🔄 Skipping Facebook campaigns fetch - running in demo mode")
+            return []
+            
         try:
             # Set default date range (last 30 days)
             if not date_range:

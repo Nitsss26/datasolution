@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import json
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
@@ -9,12 +10,23 @@ from utils.bigquery_client import BigQueryClient
 logger = logging.getLogger(__name__)
 
 class ShiprocketClient:
-    def __init__(self, api_key: str, email: str, password: str):
-        self.api_key = api_key
-        self.email = email
-        self.password = password
+    def __init__(self, api_key: str = None, email: str = None, password: str = None):
+        # Get credentials from environment if not provided
+        self.api_key = api_key or os.getenv("SHIPROCKET_API_KEY")
+        self.email = email or os.getenv("SHIPROCKET_EMAIL")
+        self.password = password or os.getenv("SHIPROCKET_PASSWORD")
         self.base_url = "https://apiv2.shiprocket.in/v1/external"
-        self.auth_token = None
+        
+        # Check if we have required credentials
+        if not all([self.email, self.password]):
+            logger.info("🔄 Running in demo mode - Shiprocket credentials not found")
+            self.is_connected = False
+            self.auth_token = None
+        else:
+            self.is_connected = True
+            self.auth_token = None
+            logger.info(f"✅ Shiprocket client initialized for email: {self.email}")
+        
         self.bigquery_client = BigQueryClient()
     
     async def _get_auth_token(self) -> str:
@@ -45,6 +57,9 @@ class ShiprocketClient:
     
     async def test_connection(self) -> Dict[str, Any]:
         """Test Shiprocket API connection"""
+        if not self.is_connected:
+            return {"success": False, "error": "Shiprocket client not initialized - running in demo mode"}
+            
         try:
             auth_token = await self._get_auth_token()
             
@@ -78,6 +93,10 @@ class ShiprocketClient:
     
     async def get_shipments(self, limit: int = 100, page: int = 1, date_range: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         """Get shipments from Shiprocket"""
+        if not self.is_connected:
+            logger.info("🔄 Skipping Shiprocket shipments fetch - running in demo mode")
+            return []
+            
         try:
             auth_token = await self._get_auth_token()
             

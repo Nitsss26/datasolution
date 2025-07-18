@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import json
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
@@ -9,19 +10,35 @@ from utils.bigquery_client import BigQueryClient
 logger = logging.getLogger(__name__)
 
 class ShopifyClient:
-    def __init__(self, shop_domain: str, access_token: str, api_version: str = "2023-10"):
-        self.shop_domain = shop_domain.replace('.myshopify.com', '')
-        self.access_token = access_token
+    def __init__(self, shop_domain: str = None, access_token: str = None, api_version: str = "2023-10"):
+        # Get credentials from environment if not provided
+        self.shop_domain = shop_domain or os.getenv("SHOPIFY_SHOP_DOMAIN")
+        self.access_token = access_token or os.getenv("SHOPIFY_ACCESS_TOKEN")
         self.api_version = api_version
-        self.base_url = f"https://{self.shop_domain}.myshopify.com/admin/api/{api_version}"
-        self.headers = {
-            "X-Shopify-Access-Token": access_token,
-            "Content-Type": "application/json"
-        }
+        
+        # Check if we have required credentials
+        if not self.shop_domain or not self.access_token:
+            logger.info("🔄 Running in demo mode - Shopify credentials not found")
+            self.is_connected = False
+            self.base_url = None
+            self.headers = None
+        else:
+            self.shop_domain = self.shop_domain.replace('.myshopify.com', '')
+            self.base_url = f"https://{self.shop_domain}.myshopify.com/admin/api/{api_version}"
+            self.headers = {
+                "X-Shopify-Access-Token": self.access_token,
+                "Content-Type": "application/json"
+            }
+            self.is_connected = True
+            logger.info(f"✅ Shopify client initialized for shop: {self.shop_domain}")
+        
         self.bigquery_client = BigQueryClient()
     
     async def test_connection(self) -> Dict[str, Any]:
         """Test Shopify API connection"""
+        if not self.is_connected:
+            return {"success": False, "error": "Shopify client not initialized - running in demo mode"}
+            
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -50,6 +67,10 @@ class ShopifyClient:
     
     async def get_orders(self, limit: int = 250, since_id: str = None, created_at_min: str = None) -> List[Dict[str, Any]]:
         """Get orders from Shopify"""
+        if not self.is_connected:
+            logger.info("🔄 Skipping Shopify orders fetch - running in demo mode")
+            return []
+            
         try:
             params = {
                 "limit": min(limit, 250),
@@ -87,6 +108,10 @@ class ShopifyClient:
     
     async def get_customers(self, limit: int = 250, since_id: str = None) -> List[Dict[str, Any]]:
         """Get customers from Shopify"""
+        if not self.is_connected:
+            logger.info("🔄 Skipping Shopify customers fetch - running in demo mode")
+            return []
+            
         try:
             params = {"limit": min(limit, 250)}
             if since_id:
@@ -118,6 +143,10 @@ class ShopifyClient:
     
     async def get_products(self, limit: int = 250, since_id: str = None) -> List[Dict[str, Any]]:
         """Get products from Shopify"""
+        if not self.is_connected:
+            logger.info("🔄 Skipping Shopify products fetch - running in demo mode")
+            return []
+            
         try:
             params = {"limit": min(limit, 250)}
             if since_id:
