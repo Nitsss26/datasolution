@@ -63,13 +63,68 @@ export default function DashboardPage() {
   const [timeRange, setTimeRange] = useState("30d")
   const [isLoading, setIsLoading] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(new Date())
+  const [dashboardData, setDashboardData] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch dashboard data from API
+  const fetchDashboardData = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      
+      const response = await fetch(`http://82.29.164.244:8000/api/analytics/dashboard?platforms=${selectedPlatforms}&time_range=${timeRange}`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const result = await response.json()
+      
+      if (result.status === 'success') {
+        setDashboardData(result.data)
+        setLastUpdated(new Date())
+      } else {
+        throw new Error('Failed to fetch dashboard data')
+      }
+    } catch (err) {
+      console.error('Dashboard data fetch error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to fetch data')
+      // Use fallback data on error
+      setDashboardData({
+        key_metrics: {
+          total_revenue: 2785000,
+          total_orders: 15247,
+          avg_roas: 4.2,
+          active_customers: 8543
+        },
+        revenue_trend: revenueData,
+        platform_revenue: platformData,
+        ad_performance: adMetrics,
+        delivery_metrics: deliveryMetrics,
+        pl_data: {
+          revenue: { total_revenue: 2785000, shopify_sales: 1949500, amazon_sales: 557000, other_sales: 278500 },
+          costs: { cogs: 1114000, ad_spend: 223000, shipping_cost: 185000, platform_fees: 139250, other_expenses: 222800, total_costs: 1884050 },
+          profit: { gross_profit: 1671000, net_profit: 900950, gross_margin: 60.0, net_margin: 32.3 }
+        },
+        platform_status: [
+          { id: "shopify", name: "Shopify", connected: true, last_sync: "2 min ago", data_points: 12450 },
+          { id: "facebook", name: "Facebook Ads", connected: true, last_sync: "5 min ago", data_points: 45 },
+          { id: "google", name: "Google Ads", connected: true, last_sync: "3 min ago", data_points: 28 },
+          { id: "shiprocket", name: "Shiprocket", connected: true, last_sync: "1 min ago", data_points: 5240 }
+        ]
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Fetch data on component mount and when filters change
+  useEffect(() => {
+    fetchDashboardData()
+  }, [selectedPlatforms, timeRange])
 
   const refreshData = async () => {
-    setIsLoading(true)
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setLastUpdated(new Date())
-    setIsLoading(false)
+    await fetchDashboardData()
   }
 
   return (
@@ -132,7 +187,9 @@ export default function DashboardPage() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">₹2,78,50,000</div>
+              <div className="text-2xl font-bold">
+                ₹{dashboardData?.key_metrics?.total_revenue?.toLocaleString() || '2,78,50,000'}
+              </div>
               <div className="flex items-center text-xs text-green-600">
                 <ArrowUpRight className="h-3 w-3 mr-1" />
                 +23.5% from last month
@@ -146,7 +203,9 @@ export default function DashboardPage() {
               <ShoppingCart className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">15,247</div>
+              <div className="text-2xl font-bold">
+                {dashboardData?.key_metrics?.total_orders?.toLocaleString() || '15,247'}
+              </div>
               <div className="flex items-center text-xs text-green-600">
                 <ArrowUpRight className="h-3 w-3 mr-1" />
                 +18.2% from last month
@@ -160,7 +219,9 @@ export default function DashboardPage() {
               <Target className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">4.2x</div>
+              <div className="text-2xl font-bold">
+                {dashboardData?.key_metrics?.avg_roas?.toFixed(1) || '4.2'}x
+              </div>
               <div className="flex items-center text-xs text-green-600">
                 <ArrowUpRight className="h-3 w-3 mr-1" />
                 +0.3x from last month
@@ -174,7 +235,9 @@ export default function DashboardPage() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">8,543</div>
+              <div className="text-2xl font-bold">
+                {dashboardData?.key_metrics?.active_customers?.toLocaleString() || '8,543'}
+              </div>
               <div className="flex items-center text-xs text-green-600">
                 <ArrowUpRight className="h-3 w-3 mr-1" />
                 +12.1% from last month

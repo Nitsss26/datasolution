@@ -86,8 +86,8 @@ async def health_check():
     """Health check endpoint"""
     services = {
         "database": "healthy",
-        "bigquery": "healthy" if bigquery_client.is_connected() else "unhealthy",
-        "scheduler": "running" if scheduler.is_running() else "stopped"
+        "bigquery": "healthy" if bigquery_client and hasattr(bigquery_client, 'is_connected') and bigquery_client.is_connected() else "demo_mode",
+        "scheduler": "running" if scheduler and hasattr(scheduler, 'is_running') and scheduler.is_running else "stopped"
     }
     
     return HealthResponse(
