@@ -6,18 +6,14 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ComprehensiveCharts } from "@/components/dashboard/comprehensive-charts"
+import { ComprehensiveDataTables } from "@/components/dashboard/comprehensive-data-tables"
+import { DataWarehousePanel } from "@/components/dashboard/data-warehouse-panel"
 import { 
-  BarChart3, 
-  TrendingUp, 
-  TrendingDown,
   Users, 
   ShoppingCart, 
   DollarSign, 
   Target,
-  Package,
-  Truck,
-  Eye,
-  MousePointer,
   RefreshCw,
   Download,
   Settings,
@@ -25,9 +21,12 @@ import {
   CheckCircle,
   Clock,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Database,
+  BarChart3,
+  Table
 } from "lucide-react"
-import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 // Sample data - replace with real API calls
 const revenueData = [
@@ -285,14 +284,40 @@ export default function DashboardPage() {
 
         {/* Main Analytics Tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-8">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="warehouse" className="flex items-center">
+              <Database className="h-4 w-4 mr-1" />
+              Data Warehouse
+            </TabsTrigger>
+            <TabsTrigger value="tables" className="flex items-center">
+              <Table className="h-4 w-4 mr-1" />
+              Data Tables
+            </TabsTrigger>
+            <TabsTrigger value="charts" className="flex items-center">
+              <BarChart3 className="h-4 w-4 mr-1" />
+              Charts
+            </TabsTrigger>
             <TabsTrigger value="revenue">Revenue</TabsTrigger>
             <TabsTrigger value="marketing">Marketing</TabsTrigger>
             <TabsTrigger value="operations">Operations</TabsTrigger>
-            <TabsTrigger value="customers">Customers</TabsTrigger>
             <TabsTrigger value="pl">P&L Report</TabsTrigger>
           </TabsList>
+
+          {/* Data Warehouse Tab */}
+          <TabsContent value="warehouse" className="space-y-6">
+            <DataWarehousePanel />
+          </TabsContent>
+
+          {/* Data Tables Tab */}
+          <TabsContent value="tables" className="space-y-6">
+            <ComprehensiveDataTables />
+          </TabsContent>
+
+          {/* Charts Tab */}
+          <TabsContent value="charts" className="space-y-6">
+            <ComprehensiveCharts />
+          </TabsContent>
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">

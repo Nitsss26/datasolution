@@ -11,7 +11,7 @@ import uvicorn
 # Import our custom modules
 from database import get_database, init_database
 from models.analytics import AnalyticsData, PlatformData, UserPreferences
-from routers import shopify, facebook_ads, google_ads, shiprocket, analytics, ai_insights, integrations, demo_data, pipeline, auth
+from routers import shopify, facebook_ads, google_ads, shiprocket, analytics, ai_insights, integrations, demo_data, pipeline, auth, comprehensive_analytics
 from utils.bigquery_client import BigQueryClient
 from utils.data_processor import DataProcessor
 from utils.scheduler import DataScheduler
@@ -217,6 +217,7 @@ app.include_router(facebook_ads.router, prefix="/api/facebook", tags=["Facebook 
 app.include_router(google_ads.router, prefix="/api/google", tags=["Google Ads"])
 app.include_router(shiprocket.router, prefix="/api/shiprocket", tags=["Shiprocket"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(comprehensive_analytics.router, prefix="/api/comprehensive", tags=["Comprehensive Analytics"])
 app.include_router(ai_insights.router, prefix="/api/ai", tags=["AI Insights"])
 app.include_router(integrations.router, prefix="/api/integrations", tags=["Integrations"])
 app.include_router(demo_data.router, prefix="/api/demo", tags=["Demo Data"])
