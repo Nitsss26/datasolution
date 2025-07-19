@@ -4,9 +4,9 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 import asyncio
 
-from ..database import get_database
-from ..utils.bigquery_client import BigQueryClient
-from ..utils.data_processor import DataProcessor
+from database import get_database
+from utils.bigquery_client import BigQueryClient
+from utils.data_processor import DataProcessor
 
 router = APIRouter()
 

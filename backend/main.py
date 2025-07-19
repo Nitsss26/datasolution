@@ -11,7 +11,17 @@ import uvicorn
 # Import our custom modules
 from database import get_database, init_database
 from models.analytics import AnalyticsData, PlatformData, UserPreferences
-from routers import shopify, facebook_ads, google_ads, shiprocket, analytics, ai_insights, integrations, demo_data, pipeline, auth, comprehensive_analytics
+from routers import shopify
+from routers import facebook_ads  
+from routers import google_ads
+from routers import shiprocket
+from routers import analytics
+from routers import ai_insights
+from routers import integrations
+from routers import demo_data
+from routers import pipeline
+from routers import auth
+from routers import comprehensive_analytics
 from utils.bigquery_client import BigQueryClient
 from utils.data_processor import DataProcessor
 from utils.scheduler import DataScheduler
