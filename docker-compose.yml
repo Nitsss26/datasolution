@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # Frontend - Next.js
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # Backend - FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017/d2c_analytics
+      - REDIS_URL=redis://redis:6379
+      - BIGQUERY_PROJECT_ID=${BIGQUERY_PROJECT_ID}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/bigquery-key.json
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./backend:/app
+      - ./credentials:/app/credentials
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # MongoDB
+  mongodb:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password123
+      - MONGO_INITDB_DATABASE=d2c_analytics
+    volumes:
+      - mongodb_data:/data/db
+      - ./backend/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+
+  # Redis for caching and job queues
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # BigQuery Emulator (for local development)
+  bigquery-emulator:
+    image: ghcr.io/goccy/bigquery-emulator:latest
+    ports:
+      - "9050:9050"
+    environment:
+      - PROJECT=d2c-analytics-local
+    volumes:
+      - ./bigquery-data:/data
+
+volumes:
+  mongodb_data:
+  redis_data:

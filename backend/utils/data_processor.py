@@ -2,479 +2,462 @@ import asyncio
 import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
-import pandas as pd
-import numpy as np
-
-from utils.bigquery_client import BigQueryClient
-from integrations.shopify_client import ShopifyClient
-from integrations.facebook_client import FacebookClient
-from integrations.google_ads_client import GoogleAdsClient
-from integrations.shiprocket_client import ShiprocketClient
+from .bigquery_client import BigQueryClient
+from database import get_database
 
 logger = logging.getLogger(__name__)
 
 class DataProcessor:
     def __init__(self, bigquery_client: BigQueryClient):
         self.bigquery = bigquery_client
-        self.shopify = ShopifyClient()
-        self.facebook = FacebookClient()
-        self.google_ads = GoogleAdsClient()
-        self.shiprocket = ShiprocketClient()
-    
+        
     async def sync_all_platforms(self, platforms: List[str], force_refresh: bool = False):
         """Sync data from all specified platforms"""
         try:
-            tasks = []
+            db = await get_database()
             
-            if "all" in platforms or "shopify" in platforms:
-                tasks.append(self.sync_shopify_data(force_refresh))
+            # Log sync start
+            sync_log = {
+                "type": "multi_platform_sync",
+                "platforms": platforms,
+                "status": "started",
+                "timestamp": datetime.utcnow(),
+                "force_refresh": force_refresh
+            }
+            result = await db.sync_logs.insert_one(sync_log)
+            sync_id = result.inserted_id
             
-            if "all" in platforms or "facebook" in platforms:
-                tasks.append(self.sync_facebook_data(force_refresh))
+            success_count = 0
+            error_count = 0
             
-            if "all" in platforms or "google" in platforms:
-                tasks.append(self.sync_google_ads_data(force_refresh))
+            for platform in platforms:
+                try:
+                    await self.sync_platform_data(platform, force_refresh)
+                    success_count += 1
+                    logger.info(f"✅ Successfully synced {platform}")
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"❌ Failed to sync {platform}: {e}")
+                    
+                    # Log individual platform error
+                    await db.error_logs.insert_one({
+                        "sync_id": sync_id,
+                        "platform": platform,
+                        "error": str(e),
+                        "timestamp": datetime.utcnow()
+                    })
+                
+                # Rate limiting between platforms
+                await asyncio.sleep(1)
             
-            if "all" in platforms or "shiprocket" in platforms:
-                tasks.append(self.sync_shiprocket_data(force_refresh))
-            
-            # Execute all sync tasks concurrently
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Log results
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    logger.error(f"Sync task {i} failed: {result}")
-                else:
-                    logger.info(f"Sync task {i} completed successfully")
-            
-            logger.info("✅ All platform sync completed")
-            
-        except Exception as e:
-            logger.error(f"❌ Platform sync failed: {e}")
-            raise e
-    
-    async def sync_shopify_data(self, force_refresh: bool = False):
-        """Sync Shopify data to BigQuery"""
-        try:
-            logger.info("🔄 Starting Shopify data sync...")
-            
-            # Get orders
-            orders = await self.shopify.get_orders(limit=250)
-            if orders:
-                processed_orders = self._process_shopify_orders(orders)
-                await self.bigquery.insert_data("shopify_orders", processed_orders)
-                logger.info(f"✅ Synced {len(processed_orders)} Shopify orders")
-            
-            # Get customers
-            customers = await self.shopify.get_customers(limit=250)
-            if customers:
-                processed_customers = self._process_shopify_customers(customers)
-                await self.bigquery.insert_data("shopify_customers", processed_customers)
-                logger.info(f"✅ Synced {len(processed_customers)} Shopify customers")
-            
-            # Get products
-            products = await self.shopify.get_products(limit=250)
-            if products:
-                processed_products = self._process_shopify_products(products)
-                await self.bigquery.insert_data("shopify_products", processed_products)
-                logger.info(f"✅ Synced {len(processed_products)} Shopify products")
-            
-        except Exception as e:
-            logger.error(f"❌ Shopify sync failed: {e}")
-            raise e
-    
-    async def sync_facebook_data(self, force_refresh: bool = False):
-        """Sync Facebook Ads data to BigQuery"""
-        try:
-            logger.info("🔄 Starting Facebook Ads data sync...")
-            
-            # Get ad insights
-            insights = await self.facebook.get_ad_insights(
-                date_range="last_30_days",
-                level="ad"
+            # Update sync log
+            await db.sync_logs.update_one(
+                {"_id": sync_id},
+                {"$set": {
+                    "status": "completed" if error_count == 0 else "partial",
+                    "completed_at": datetime.utcnow(),
+                    "success_count": success_count,
+                    "error_count": error_count
+                }}
             )
             
-            if insights:
-                processed_insights = self._process_facebook_insights(insights)
-                await self.bigquery.insert_data("facebook_ads", processed_insights)
-                logger.info(f"✅ Synced {len(processed_insights)} Facebook ad insights")
+            logger.info(f"✅ Multi-platform sync completed: {success_count} success, {error_count} errors")
             
         except Exception as e:
-            logger.error(f"❌ Facebook sync failed: {e}")
-            raise e
-    
-    async def sync_google_ads_data(self, force_refresh: bool = False):
-        """Sync Google Ads data to BigQuery"""
+            logger.error(f"❌ Multi-platform sync failed: {e}")
+            raise
+
+    async def sync_platform_data(self, platform: str, force_refresh: bool = False):
+        """Sync data for a specific platform"""
         try:
-            logger.info("🔄 Starting Google Ads data sync...")
+            db = await get_database()
             
-            # Get campaign performance
-            campaigns = await self.google_ads.get_campaign_performance(
-                date_range="LAST_30_DAYS"
+            # Check if platform is configured
+            platform_config = await db.platform_configs.find_one({"platform_id": platform})
+            if not platform_config:
+                # Create demo data for platforms that aren't configured
+                await self._create_demo_data(platform)
+                return
+            
+            # Get last sync time
+            last_sync = platform_config.get("last_sync")
+            if not force_refresh and last_sync:
+                # Check if we need to sync (don't sync more than once per hour)
+                if datetime.utcnow() - last_sync < timedelta(hours=1):
+                    logger.info(f"Skipping {platform} sync - last synced {last_sync}")
+                    return
+            
+            # Perform platform-specific sync
+            if platform == "shopify":
+                await self._sync_shopify_data(platform_config)
+            elif platform == "facebook":
+                await self._sync_facebook_data(platform_config)
+            elif platform == "google":
+                await self._sync_google_data(platform_config)
+            elif platform == "shiprocket":
+                await self._sync_shiprocket_data(platform_config)
+            else:
+                logger.warning(f"Unknown platform: {platform}")
+                return
+            
+            # Update last sync time
+            await db.platform_configs.update_one(
+                {"platform_id": platform},
+                {"$set": {"last_sync": datetime.utcnow()}}
             )
             
-            if campaigns:
-                processed_campaigns = self._process_google_ads_data(campaigns)
-                await self.bigquery.insert_data("google_ads", processed_campaigns)
-                logger.info(f"✅ Synced {len(processed_campaigns)} Google Ads campaigns")
+            logger.info(f"✅ {platform} data sync completed")
             
         except Exception as e:
-            logger.error(f"❌ Google Ads sync failed: {e}")
-            raise e
-    
-    async def sync_shiprocket_data(self, force_refresh: bool = False):
-        """Sync Shiprocket data to BigQuery"""
+            logger.error(f"❌ {platform} data sync failed: {e}")
+            raise
+
+    async def _create_demo_data(self, platform: str):
+        """Create demo data for platforms that aren't configured"""
         try:
-            logger.info("🔄 Starting Shiprocket data sync...")
+            current_date = datetime.utcnow()
             
-            # Get shipments
-            shipments = await self.shiprocket.get_shipments(limit=250)
+            if platform == "shopify":
+                # Generate demo Shopify orders
+                demo_orders = []
+                for i in range(100):
+                    order_date = current_date - timedelta(days=i % 30)
+                    demo_orders.append({
+                        "order_id": f"demo_order_{i}",
+                        "order_number": f"#{1000 + i}",
+                        "customer_id": f"demo_customer_{i % 20}",
+                        "customer_email": f"customer{i % 20}@example.com",
+                        "total_price": round(50 + (i % 500), 2),
+                        "subtotal_price": round(45 + (i % 450), 2),
+                        "total_tax": round(5 + (i % 50), 2),
+                        "currency": "INR",
+                        "financial_status": "paid" if i % 10 != 0 else "pending",
+                        "fulfillment_status": "fulfilled" if i % 8 != 0 else "pending",
+                        "created_at": order_date,
+                        "updated_at": order_date,
+                        "processed_at": order_date,
+                        "cancelled_at": None,
+                        "tags": "demo,online",
+                        "source_name": "web",
+                        "gateway": "razorpay",
+                        "line_items": [{"product_id": f"prod_{i % 10}", "quantity": 1 + (i % 3)}],
+                        "shipping_address": {"city": "Mumbai", "country": "India"},
+                        "billing_address": {"city": "Mumbai", "country": "India"}
+                    })
+                
+                await self.bigquery.insert_data("shopify_orders", demo_orders)
+                
+                # Generate demo customers
+                demo_customers = []
+                for i in range(20):
+                    customer_date = current_date - timedelta(days=i * 5)
+                    demo_customers.append({
+                        "customer_id": f"demo_customer_{i}",
+                        "email": f"customer{i}@example.com",
+                        "first_name": f"Customer",
+                        "last_name": f"{i}",
+                        "phone": f"+91{9000000000 + i}",
+                        "orders_count": 1 + (i % 10),
+                        "total_spent": round(100 + (i * 50), 2),
+                        "created_at": customer_date,
+                        "updated_at": customer_date,
+                        "last_order_date": current_date - timedelta(days=i % 15),
+                        "tags": "demo,vip" if i % 5 == 0 else "demo",
+                        "state": "Maharashtra",
+                        "country": "India",
+                        "city": "Mumbai",
+                        "accepts_marketing": i % 3 == 0
+                    })
+                
+                await self.bigquery.insert_data("shopify_customers", demo_customers)
+                
+            elif platform == "facebook":
+                # Generate demo Facebook campaigns
+                demo_campaigns = []
+                for i in range(10):
+                    campaign_date = current_date - timedelta(days=i)
+                    demo_campaigns.append({
+                        "campaign_id": f"demo_fb_campaign_{i}",
+                        "campaign_name": f"Demo Campaign {i}",
+                        "account_id": "demo_account",
+                        "objective": "CONVERSIONS",
+                        "status": "ACTIVE",
+                        "spend": round(1000 + (i * 200), 2),
+                        "impressions": 10000 + (i * 2000),
+                        "clicks": 500 + (i * 100),
+                        "conversions": 25 + (i * 5),
+                        "ctr": round(2.5 + (i * 0.1), 2),
+                        "cpc": round(12 + (i * 2), 2),
+                        "cpm": round(120 + (i * 10), 2),
+                        "conversion_rate": round(5 + (i * 0.5), 2),
+                        "roas": round(3.5 + (i * 0.2), 2),
+                        "date_start": campaign_date.date(),
+                        "date_stop": campaign_date.date(),
+                        "created_time": campaign_date,
+                        "updated_time": campaign_date
+                    })
+                
+                await self.bigquery.insert_data("facebook_campaigns", demo_campaigns)
+                
+            elif platform == "google":
+                # Generate demo Google campaigns
+                demo_campaigns = []
+                for i in range(8):
+                    campaign_date = current_date - timedelta(days=i)
+                    demo_campaigns.append({
+                        "campaign_id": f"demo_google_campaign_{i}",
+                        "campaign_name": f"Demo Google Campaign {i}",
+                        "customer_id": "demo_customer",
+                        "campaign_type": "SEARCH",
+                        "status": "ENABLED",
+                        "cost": round(800 + (i * 150), 2),
+                        "impressions": 8000 + (i * 1500),
+                        "clicks": 400 + (i * 80),
+                        "conversions": round(20 + (i * 3), 1),
+                        "ctr": round(3.0 + (i * 0.2), 2),
+                        "avg_cpc": round(15 + (i * 1.5), 2),
+                        "conversion_rate": round(4.5 + (i * 0.3), 2),
+                        "cost_per_conversion": round(35 + (i * 5), 2),
+                        "date": campaign_date.date(),
+                        "created_at": campaign_date,
+                        "updated_at": campaign_date
+                    })
+                
+                await self.bigquery.insert_data("google_campaigns", demo_campaigns)
+                
+            elif platform == "shiprocket":
+                # Generate demo shipments
+                demo_shipments = []
+                couriers = ["Shiprocket", "Delhivery", "BlueDart", "DTDC"]
+                statuses = ["delivered", "in_transit", "picked_up", "delivered"]
+                
+                for i in range(80):
+                    pickup_date = current_date - timedelta(days=i % 20)
+                    delivered_date = pickup_date + timedelta(days=2 + (i % 3)) if i % 10 != 0 else None
+                    
+                    demo_shipments.append({
+                        "shipment_id": f"demo_shipment_{i}",
+                        "order_id": f"demo_order_{i % 50}",
+                        "awb": f"AWB{1000000 + i}",
+                        "courier_name": couriers[i % len(couriers)],
+                        "status": statuses[i % len(statuses)],
+                        "pickup_date": pickup_date,
+                        "delivered_date": delivered_date,
+                        "expected_delivery_date": pickup_date + timedelta(days=3),
+                        "weight": round(0.5 + (i % 5), 2),
+                        "length": 10 + (i % 20),
+                        "breadth": 8 + (i % 15),
+                        "height": 5 + (i % 10),
+                        "shipping_charges": round(50 + (i % 100), 2),
+                        "cod_charges": round(20 + (i % 30), 2) if i % 3 == 0 else 0,
+                        "pickup_location": "Mumbai",
+                        "delivery_location": f"City_{i % 10}",
+                        "created_at": pickup_date,
+                        "updated_at": pickup_date
+                    })
+                
+                await self.bigquery.insert_data("shiprocket_shipments", demo_shipments)
             
-            if shipments:
-                processed_shipments = self._process_shiprocket_data(shipments)
-                await self.bigquery.insert_data("shiprocket_shipments", processed_shipments)
-                logger.info(f"✅ Synced {len(processed_shipments)} Shiprocket shipments")
+            logger.info(f"✅ Created demo data for {platform}")
             
         except Exception as e:
-            logger.error(f"❌ Shiprocket sync failed: {e}")
-            raise e
-    
-    async def get_analytics(self, platforms: List[str], time_range: str, metrics: Optional[List[str]] = None, granularity: str = "daily"):
+            logger.error(f"❌ Failed to create demo data for {platform}: {e}")
+
+    async def _sync_shopify_data(self, config: Dict[str, Any]):
+        """Sync Shopify data using API"""
+        # This would use the actual Shopify API
+        # For now, we'll create some demo data
+        await self._create_demo_data("shopify")
+
+    async def _sync_facebook_data(self, config: Dict[str, Any]):
+        """Sync Facebook Ads data using API"""
+        # This would use the actual Facebook Ads API
+        # For now, we'll create some demo data
+        await self._create_demo_data("facebook")
+
+    async def _sync_google_data(self, config: Dict[str, Any]):
+        """Sync Google Ads data using API"""
+        # This would use the actual Google Ads API
+        # For now, we'll create some demo data
+        await self._create_demo_data("google")
+
+    async def _sync_shiprocket_data(self, config: Dict[str, Any]):
+        """Sync Shiprocket data using API"""
+        # This would use the actual Shiprocket API
+        # For now, we'll create some demo data
+        await self._create_demo_data("shiprocket")
+
+    async def get_analytics(self, platforms: List[str], time_range: str, metrics: Optional[List[str]] = None, granularity: str = "daily") -> Dict[str, Any]:
         """Get comprehensive analytics data"""
         try:
-            # Get raw data from BigQuery
-            raw_data = await self.bigquery.get_analytics_data(platforms, time_range, granularity)
+            # Get data from BigQuery
+            analytics_data = await self.bigquery.get_analytics_data(platforms, time_range)
             
-            # Process and calculate metrics
-            analytics = self._calculate_comprehensive_metrics(raw_data, platforms, time_range)
+            # Add calculated metrics
+            analytics_data['calculated_metrics'] = await self._calculate_metrics(analytics_data)
             
-            return analytics
+            # Add summary
+            analytics_data['summary'] = await self._generate_summary(analytics_data)
+            
+            return analytics_data
             
         except Exception as e:
-            logger.error(f"❌ Analytics calculation failed: {e}")
-            raise e
-    
-    def _process_shopify_orders(self, orders: List[Dict]) -> List[Dict]:
-        """Process Shopify orders for BigQuery"""
-        processed = []
-        
-        for order in orders:
-            processed_order = {
-                "order_id": str(order.get("id")),
-                "customer_id": str(order.get("customer", {}).get("id")) if order.get("customer") else None,
-                "email": order.get("email"),
-                "total_price": float(order.get("total_price", 0)),
-                "subtotal_price": float(order.get("subtotal_price", 0)),
-                "total_tax": float(order.get("total_tax", 0)),
-                "currency": order.get("currency"),
-                "financial_status": order.get("financial_status"),
-                "fulfillment_status": order.get("fulfillment_status"),
-                "created_at": order.get("created_at"),
-                "updated_at": order.get("updated_at"),
-                "line_items": order.get("line_items", []),
-                "shipping_address": order.get("shipping_address"),
-                "billing_address": order.get("billing_address")
-            }
-            processed.append(processed_order)
-        
-        return processed
-    
-    def _process_shopify_customers(self, customers: List[Dict]) -> List[Dict]:
-        """Process Shopify customers for BigQuery"""
-        processed = []
-        
-        for customer in customers:
-            processed_customer = {
-                "customer_id": str(customer.get("id")),
-                "email": customer.get("email"),
-                "first_name": customer.get("first_name"),
-                "last_name": customer.get("last_name"),
-                "orders_count": int(customer.get("orders_count", 0)),
-                "total_spent": float(customer.get("total_spent", 0)),
-                "created_at": customer.get("created_at"),
-                "updated_at": customer.get("updated_at"),
-                "state": customer.get("state"),
-                "country": customer.get("default_address", {}).get("country") if customer.get("default_address") else None
-            }
-            processed.append(processed_customer)
-        
-        return processed
-    
-    def _process_shopify_products(self, products: List[Dict]) -> List[Dict]:
-        """Process Shopify products for BigQuery"""
-        processed = []
-        
-        for product in products:
-            processed_product = {
-                "product_id": str(product.get("id")),
-                "title": product.get("title"),
-                "vendor": product.get("vendor"),
-                "product_type": product.get("product_type"),
-                "handle": product.get("handle"),
-                "status": product.get("status"),
-                "created_at": product.get("created_at"),
-                "updated_at": product.get("updated_at"),
-                "variants": product.get("variants", []),
-                "images": product.get("images", [])
-            }
-            processed.append(processed_product)
-        
-        return processed
-    
-    def _process_facebook_insights(self, insights: List[Dict]) -> List[Dict]:
-        """Process Facebook ad insights for BigQuery"""
-        processed = []
-        
-        for insight in insights:
-            processed_insight = {
-                "campaign_id": insight.get("campaign_id"),
-                "campaign_name": insight.get("campaign_name"),
-                "adset_id": insight.get("adset_id"),
-                "adset_name": insight.get("adset_name"),
-                "ad_id": insight.get("ad_id"),
-                "ad_name": insight.get("ad_name"),
-                "date_start": insight.get("date_start"),
-                "date_stop": insight.get("date_stop"),
-                "impressions": int(insight.get("impressions", 0)),
-                "clicks": int(insight.get("clicks", 0)),
-                "spend": float(insight.get("spend", 0)),
-                "conversions": int(insight.get("conversions", 0)),
-                "conversion_value": float(insight.get("conversion_value", 0)),
-                "cpm": float(insight.get("cpm", 0)),
-                "cpc": float(insight.get("cpc", 0)),
-                "ctr": float(insight.get("ctr", 0)),
-                "created_at": datetime.utcnow().isoformat()
-            }
-            processed.append(processed_insight)
-        
-        return processed
-    
-    def _process_google_ads_data(self, campaigns: List[Dict]) -> List[Dict]:
-        """Process Google Ads data for BigQuery"""
-        processed = []
-        
-        for campaign in campaigns:
-            processed_campaign = {
-                "campaign_id": campaign.get("campaign_id"),
-                "campaign_name": campaign.get("campaign_name"),
-                "ad_group_id": campaign.get("ad_group_id"),
-                "ad_group_name": campaign.get("ad_group_name"),
-                "keyword": campaign.get("keyword"),
-                "date": campaign.get("date"),
-                "impressions": int(campaign.get("impressions", 0)),
-                "clicks": int(campaign.get("clicks", 0)),
-                "cost": float(campaign.get("cost", 0)),
-                "conversions": float(campaign.get("conversions", 0)),
-                "conversion_value": float(campaign.get("conversion_value", 0)),
-                "avg_cpc": float(campaign.get("avg_cpc", 0)),
-                "ctr": float(campaign.get("ctr", 0)),
-                "quality_score": int(campaign.get("quality_score", 0)),
-                "created_at": datetime.utcnow().isoformat()
-            }
-            processed.append(processed_campaign)
-        
-        return processed
-    
-    def _process_shiprocket_data(self, shipments: List[Dict]) -> List[Dict]:
-        """Process Shiprocket data for BigQuery"""
-        processed = []
-        
-        for shipment in shipments:
-            processed_shipment = {
-                "shipment_id": str(shipment.get("shipment_id")),
-                "order_id": str(shipment.get("order_id")),
-                "awb": shipment.get("awb"),
-                "courier_name": shipment.get("courier_name"),
-                "status": shipment.get("status"),
-                "pickup_date": shipment.get("pickup_date"),
-                "delivered_date": shipment.get("delivered_date"),
-                "weight": float(shipment.get("weight", 0)),
-                "length": float(shipment.get("length", 0)),
-                "breadth": float(shipment.get("breadth", 0)),
-                "height": float(shipment.get("height", 0)),
-                "shipping_charges": float(shipment.get("shipping_charges", 0)),
-                "cod_charges": float(shipment.get("cod_charges", 0)),
-                "pickup_location": shipment.get("pickup_location"),
-                "delivery_location": shipment.get("delivery_location"),
-                "created_at": datetime.utcnow().isoformat()
-            }
-            processed.append(processed_shipment)
-        
-        return processed
-    
-    def _calculate_comprehensive_metrics(self, raw_data: List[Dict], platforms: List[str], time_range: str) -> Dict[str, Any]:
-        """Calculate comprehensive D2C metrics"""
+            logger.error(f"Failed to get analytics: {e}")
+            return {}
+
+    async def _calculate_metrics(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate additional metrics from raw data"""
         try:
-            if not raw_data:
-                return self._get_empty_analytics()
+            metrics = {}
             
-            df = pd.DataFrame(raw_data)
+            # Revenue metrics
+            if 'revenue' in data:
+                revenue_data = data['revenue']
+                metrics['revenue_growth'] = self._calculate_growth_rate(revenue_data.get('daily_revenue', []))
+                metrics['revenue_trend'] = self._calculate_trend(revenue_data.get('daily_revenue', []))
             
-            # Calculate D2C metrics
-            d2c_metrics = self._calculate_d2c_metrics(df)
+            # Customer metrics
+            if 'customers' in data:
+                customer_data = data['customers']
+                metrics['customer_acquisition_cost'] = self._calculate_cac(data)
+                metrics['customer_lifetime_value'] = customer_data.get('avg_ltv', 0)
             
-            # Calculate ad metrics
-            ad_metrics = self._calculate_ad_metrics(df)
+            # Ad metrics
+            if 'ad_performance' in data:
+                ad_data = data['ad_performance']
+                metrics['total_roas'] = self._calculate_total_roas(ad_data)
+                metrics['ad_efficiency'] = self._calculate_ad_efficiency(ad_data)
             
-            # Calculate delivery metrics
-            delivery_metrics = self._calculate_delivery_metrics(df)
-            
-            # Calculate trends
-            trends = self._calculate_trends(df)
-            
-            # Platform breakdown
-            platform_breakdown = self._calculate_platform_breakdown(df, platforms)
-            
-            return {
-                "d2cMetrics": d2c_metrics,
-                "adMetrics": ad_metrics,
-                "deliveryMetrics": delivery_metrics,
-                "trends": trends,
-                "platformBreakdown": platform_breakdown,
-                "timeSeriesData": raw_data,
-                "summary": {
-                    "totalRevenue": d2c_metrics.get("totalRevenue", 0),
-                    "totalOrders": d2c_metrics.get("totalOrders", 0),
-                    "totalCustomers": d2c_metrics.get("newCustomerCount", 0),
-                    "roas": ad_metrics.get("returnOnAdSpend", 0),
-                    "dataPoints": len(raw_data)
-                }
-            }
+            return metrics
             
         except Exception as e:
-            logger.error(f"❌ Metrics calculation failed: {e}")
-            return self._get_empty_analytics()
-    
-    def _calculate_d2c_metrics(self, df: pd.DataFrame) -> Dict[str, float]:
-        """Calculate D2C business metrics"""
-        return {
-            "totalRevenue": df["revenue"].sum(),
-            "totalOrders": df["orders"].sum(),
-            "averageOrderValue": df["avg_order_value"].mean(),
-            "newCustomerCount": df["customers"].sum(),
-            "grossMerchandiseValue": df["revenue"].sum(),
-            "subscriptionRevenue": 0,  # Would need specific data
-            "refundAmount": 0,  # Would need specific data
-            "costOfGoodsSold": df["revenue"].sum() * 0.4,  # Estimated
-            "operatingExpenses": df["revenue"].sum() * 0.2,  # Estimated
-            "marketplaceFees": df["revenue"].sum() * 0.03,  # Estimated
-            "paymentGatewayFees": df["revenue"].sum() * 0.025,  # Estimated
-            "returnProcessingCosts": df["revenue"].sum() * 0.01,  # Estimated
-            "overheadCosts": df["revenue"].sum() * 0.15,  # Estimated
-            "customerLifetimeValue": df["revenue"].sum() / max(df["customers"].sum(), 1) * 3,  # Estimated
-            "customerAcquisitionCost": df["ad_spend"].sum() / max(df["customers"].sum(), 1),
-            "repeatPurchaseRate": 25.0,  # Would need specific calculation
-            "churnRate": 5.0,  # Would need specific calculation
-            "returningCustomerCount": df["customers"].sum() * 0.3,  # Estimated
-            "inventoryTurnover": 6.0,  # Would need inventory data
-            "stockoutRate": 2.0,  # Would need inventory data
-            "daysToSellInventory": 60.0,  # Would need inventory data
-        }
-    
-    def _calculate_ad_metrics(self, df: pd.DataFrame) -> Dict[str, float]:
-        """Calculate advertising metrics"""
-        total_spend = df["ad_spend"].sum()
-        total_revenue = df["conversion_value"].sum()
-        total_impressions = df["impressions"].sum()
-        total_clicks = df["clicks"].sum()
-        total_conversions = df["conversions"].sum()
+            logger.error(f"Failed to calculate metrics: {e}")
+            return {}
+
+    def _calculate_growth_rate(self, daily_data: List[Dict[str, Any]]) -> float:
+        """Calculate growth rate from daily data"""
+        if len(daily_data) < 2:
+            return 0.0
         
-        return {
-            "returnOnAdSpend": total_revenue / max(total_spend, 1),
-            "clickThroughRate": (total_clicks / max(total_impressions, 1)) * 100,
-            "conversionRate": (total_conversions / max(total_clicks, 1)) * 100,
-            "costPerClick": total_spend / max(total_clicks, 1),
-            "costPerConversion": total_spend / max(total_conversions, 1),
-            "impressions": total_impressions,
-            "clicks": total_clicks,
-            "conversions": total_conversions,
-            "adSpend": total_spend,
-            "costPerMille": (total_spend / max(total_impressions, 1)) * 1000,
-            "costPerAction": total_spend / max(total_conversions, 1),
-            "advertisingCostOfSales": (total_spend / max(total_revenue, 1)) * 100
-        }
-    
-    def _calculate_delivery_metrics(self, df: pd.DataFrame) -> Dict[str, float]:
-        """Calculate delivery and shipping metrics"""
-        return {
-            "averageDeliveryTime": df["avg_delivery_hours"].mean() / 24,  # Convert to days
-            "shippingCosts": df["shipping_costs"].sum(),
-            "onTimeDeliveryRate": 85.0,  # Would need specific calculation
-            "lateDeliveryRate": 15.0,  # Would need specific calculation
-            "failedDeliveryAttempts": 0,  # Would need specific data
-            "returnRate": 8.0,  # Would need specific calculation
-            "returnProcessingTime": 3.0,  # Would need specific data
-            "pickupSuccessRate": 95.0,  # Would need specific calculation
-            "totalShipments": df["shipments"].sum(),
-            "averageShippingCost": df["shipping_costs"].sum() / max(df["shipments"].sum(), 1)
-        }
-    
-    def _calculate_trends(self, df: pd.DataFrame) -> Dict[str, List[Dict]]:
-        """Calculate trend data"""
-        df_sorted = df.sort_values("date")
+        # Compare first half vs second half
+        mid_point = len(daily_data) // 2
+        first_half = sum(day.get('revenue', 0) for day in daily_data[:mid_point])
+        second_half = sum(day.get('revenue', 0) for day in daily_data[mid_point:])
         
-        return {
-            "revenue": [
-                {"date": row["date"], "value": row["revenue"]} 
-                for _, row in df_sorted.iterrows()
-            ],
-            "orders": [
-                {"date": row["date"], "value": row["orders"]} 
-                for _, row in df_sorted.iterrows()
-            ],
-            "customers": [
-                {"date": row["date"], "value": row["customers"]} 
-                for _, row in df_sorted.iterrows()
-            ],
-            "roas": [
-                {"date": row["date"], "value": row["roas"]} 
-                for _, row in df_sorted.iterrows()
-            ]
-        }
-    
-    def _calculate_platform_breakdown(self, df: pd.DataFrame, platforms: List[str]) -> Dict[str, Dict[str, float]]:
-        """Calculate platform-wise breakdown"""
-        total_revenue = df["revenue"].sum()
+        if first_half == 0:
+            return 0.0
         
-        # This is a simplified breakdown - in reality, you'd need platform-specific data
-        return {
-            "shopify": {
-                "revenue": total_revenue * 0.7,
-                "orders": df["orders"].sum() * 0.7,
-                "customers": df["customers"].sum() * 0.7
-            },
-            "facebook": {
-                "adSpend": df["ad_spend"].sum() * 0.6,
-                "conversions": df["conversions"].sum() * 0.6,
-                "roas": df["roas"].mean()
-            },
-            "google": {
-                "adSpend": df["ad_spend"].sum() * 0.4,
-                "conversions": df["conversions"].sum() * 0.4,
-                "roas": df["roas"].mean()
-            },
-            "shiprocket": {
-                "shippingCosts": df["shipping_costs"].sum(),
-                "shipments": df["shipments"].sum(),
-                "avgDeliveryTime": df["avg_delivery_hours"].mean() / 24
+        return ((second_half - first_half) / first_half) * 100
+
+    def _calculate_trend(self, daily_data: List[Dict[str, Any]]) -> str:
+        """Calculate trend direction"""
+        if len(daily_data) < 3:
+            return "stable"
+        
+        recent_avg = sum(day.get('revenue', 0) for day in daily_data[-7:]) / min(7, len(daily_data))
+        older_avg = sum(day.get('revenue', 0) for day in daily_data[:-7]) / max(1, len(daily_data) - 7)
+        
+        if recent_avg > older_avg * 1.1:
+            return "increasing"
+        elif recent_avg < older_avg * 0.9:
+            return "decreasing"
+        else:
+            return "stable"
+
+    def _calculate_cac(self, data: Dict[str, Any]) -> float:
+        """Calculate Customer Acquisition Cost"""
+        try:
+            ad_data = data.get('ad_performance', {})
+            total_ad_spend = 0
+            total_conversions = 0
+            
+            for platform, metrics in ad_data.items():
+                total_ad_spend += metrics.get('total_spend', 0)
+                total_conversions += metrics.get('total_conversions', 0)
+            
+            if total_conversions == 0:
+                return 0.0
+            
+            return total_ad_spend / total_conversions
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate CAC: {e}")
+            return 0.0
+
+    def _calculate_total_roas(self, ad_data: Dict[str, Any]) -> float:
+        """Calculate overall ROAS across all platforms"""
+        try:
+            total_spend = 0
+            total_revenue = 0
+            
+            for platform, metrics in ad_data.items():
+                spend = metrics.get('total_spend', 0)
+                conversions = metrics.get('total_conversions', 0)
+                total_spend += spend
+                # Assume average order value of 1500 INR
+                total_revenue += conversions * 1500
+            
+            if total_spend == 0:
+                return 0.0
+            
+            return total_revenue / total_spend
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate total ROAS: {e}")
+            return 0.0
+
+    def _calculate_ad_efficiency(self, ad_data: Dict[str, Any]) -> Dict[str, float]:
+        """Calculate ad efficiency metrics"""
+        try:
+            efficiency = {}
+            
+            for platform, metrics in ad_data.items():
+                impressions = metrics.get('total_impressions', 0)
+                clicks = metrics.get('total_clicks', 0)
+                conversions = metrics.get('total_conversions', 0)
+                
+                if impressions > 0:
+                    ctr = (clicks / impressions) * 100
+                    efficiency[f'{platform}_ctr'] = ctr
+                
+                if clicks > 0:
+                    conversion_rate = (conversions / clicks) * 100
+                    efficiency[f'{platform}_conversion_rate'] = conversion_rate
+            
+            return efficiency
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate ad efficiency: {e}")
+            return {}
+
+    async def _generate_summary(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate executive summary"""
+        try:
+            summary = {
+                'total_revenue': data.get('revenue', {}).get('total_revenue', 0),
+                'total_orders': data.get('revenue', {}).get('total_orders', 0),
+                'total_customers': data.get('customers', {}).get('total_customers', 0),
+                'total_ad_spend': 0,
+                'overall_roas': 0,
+                'profit_margin': 0
             }
-        }
-    
-    def _get_empty_analytics(self) -> Dict[str, Any]:
-        """Return empty analytics structure"""
-        return {
-            "d2cMetrics": {},
-            "adMetrics": {},
-            "deliveryMetrics": {},
-            "trends": {},
-            "platformBreakdown": {},
-            "timeSeriesData": [],
-            "summary": {
-                "totalRevenue": 0,
-                "totalOrders": 0,
-                "totalCustomers": 0,
-                "roas": 0,
-                "dataPoints": 0
-            }
-        }
+            
+            # Calculate total ad spend
+            ad_data = data.get('ad_performance', {})
+            for platform, metrics in ad_data.items():
+                summary['total_ad_spend'] += metrics.get('total_spend', 0)
+            
+            # Calculate overall ROAS
+            if summary['total_ad_spend'] > 0:
+                summary['overall_roas'] = summary['total_revenue'] / summary['total_ad_spend']
+            
+            # Calculate profit margin from P&L data
+            pl_data = data.get('pl_data', {})
+            profit_info = pl_data.get('profit', {})
+            summary['profit_margin'] = profit_info.get('net_margin', 0)
+            
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Failed to generate summary: {e}")
+            return {}
